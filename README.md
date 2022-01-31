@@ -15,7 +15,7 @@ Our SIT triplet is (Go, Python, MIPS).
     - _Due on: 24.01.2022_
     - In this milestone, we had to provide the details of our Compiler. 
     - Deliverables
-        - docs/specs.pdf`
+        - `docs/specs.pdf`
 - [ ] Milestone 2 : Scanner
     - _Due on: 01.02.2022_
     - In this milestone, we had to construct a scanner for the source language to output the tokens in a tabular form.
