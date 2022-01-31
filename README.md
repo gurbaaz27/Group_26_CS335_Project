@@ -4,10 +4,10 @@ Our SIT triplet is (Go, Python, MIPS).
 
 ## Table of Contents
 
-1. [Timeline](#i.-timeline)
-2. [Usage Guidelines](#ii.-usage-guidelines)
-3. [Group Members](#iii.-group-members)
-4. [Acknowledgement](#iv.-acknowledgement)
+1. [Timeline](#i-timeline)
+2. [Usage Guidelines](#ii-usage-guidelines)
+3. [Group Members](#iii-group-members)
+4. [Acknowledgement](#iv-acknowledgement)
 
 ## i. Timeline
 
