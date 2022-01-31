@@ -1,46 +1,62 @@
-## RESERVED: KEYWORDS
+# Milestone-II
 
-break        default      func         ~interface~    ~select~
-case         ~defer~        ~go~           ~map~          struct
-~chan~         else         ~goto~         package      switch
-const        ~fallthrough~  if           range        type
-continue     for          import       return       var
+## Tokens for Lexer
 
-CAPITALISE THEM TO FORM TOKENS
+### Reserved I: Keywords
 
-## RESERVED: SPECIAL MEANING WORDS
+```
+break       default         func         ~interface~    ~select~
+case        ~defer~         ~go~         ~map~          struct
+~chan~      else            ~goto~       package        switch
+const       ~fallthrough~   if           range          type
+continue    for             import       return         var
+```
 
+> __*Capitalise them to form tokens*__
+
+### Reserved II: Special Meaning Words
+
+```
 int.....8 16 32 64
 uint...8 16 32 64
 float...32 64
 string...
 boolean...
+```
 
-CAPITALISE THEM TO FORM TOKENS
+> __*Capitalise them to form tokens*__
 
-## OPERATORS AND PUNCTUTAIONS
+### Operators and Punctuations
 
-+ PLUS    &     +=    &=     &&    ==    !=   (    )
-- MINUS    |     -=    |=     ||    <     <=    [    ]
-* STAR    ^     *=    ^=     <-    >     >=    {    }
+```
++     &     +=    &=     &&    ==    !=   (    )
+-     |     -=    |=     ||    <     <=    [    ]
+*     ^     *=    ^=     <-    >     >=    {    }
 /    <<    /=    <<=    ++    =     :=    ,    ;
 %    >>    %=    >>=    --    !     ...   .    :
+```
+
+> __*Make meaningful descriptive token names*__
 
 
-## MISCELLANEOUS
+### Miscellaneous
 
-IDENTIFIER
+- IDENTIFIER: `main`, `factorial`, `x`
 
-COMMENT // or /* or */
+- COMMENT: `//` or `/* ... */`
 
-NEWLINE
+- NEWLINE: `\n`
 
-INTEGER_LITERAL 3 0x4 3UL 
-decimal_lit 
-binary_lit    
-octal_lit 
-hex_lit
+- INTEGER_LITERAL: `3`, `0x4`, `0o25`
+    - decimal_lit 
+    - binary_lit    
+    - octal_lit 
+    - hex_lit
 
-BOOLEN_LITERAL true, false
+- FLOAT_LITERAL: `1e+05`, `.35`
 
-STRING_LITERAL 
+- BOOLEN_LITERAL: `true`, `false`
+
+- STRING_LITERAL: `"hello"`, `"bye"` 
+
+- IGNORE: `\t`, `' '`(whitespace)

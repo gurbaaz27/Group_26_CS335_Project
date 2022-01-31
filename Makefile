@@ -1,2 +1,4 @@
-lex:
-	python src/lexer.py tests/scanner/*.go
+test=1
+
+scanner:
+	python src/lexer.py tests/scanner/${test}.go
