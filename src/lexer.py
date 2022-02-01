@@ -59,6 +59,7 @@ SPECIAL_WORDS = [
     "uint16",
     "uint32",
     "uint64",
+    "uint",
     "bool",
     "string",
 ]
@@ -72,7 +73,7 @@ OPERATORS_AND_PUNCTUATIONS = [
     "LEFT_SHIFT",
     "PLUS_ASSIGN",
     "MINUS_ASSIGN",
-    "MULT_ASSIGN",
+    "STAR_ASSIGN",
     "DIV_ASSIGN",
     "MOD_ASSIGN",
     "AND_ASSIGN",
@@ -89,7 +90,7 @@ OPERATORS_AND_PUNCTUATIONS = [
     "GREATER_EQUAL",
     "PLUS",
     "MINUS",
-    "MULT",
+    "STAR",
     "DIV",
     "MOD",
     "BIT_AND",
@@ -133,7 +134,7 @@ t_RIGHT_SHIFT = r">>"
 t_LEFT_SHIFT = r"<<"
 t_PLUS_ASSIGN = r"\+="
 t_MINUS_ASSIGN = r"-="
-t_MULT_ASSIGN = r"\*="
+t_STAR_ASSIGN = r"\*="
 t_DIV_ASSIGN = r"/="
 t_MOD_ASSIGN = r"%="
 t_AND_ASSIGN = r"&="
@@ -150,7 +151,7 @@ t_LESS_EQUAL = r"<="
 t_GREATER_EQUAL = r">="
 t_PLUS = r"\+"
 t_MINUS = r"-"
-t_MULT = r"\*"
+t_STAR = r"\*"
 t_DIV = r"/"
 t_MOD = r"%"
 t_BIT_AND = r"&"
@@ -174,7 +175,7 @@ t_SEMICOLON = r";"
 
 ## Making regex for integer literals
 decimal_literal = r"[1-9][0-9]*"
-octal_literal = r"(0|0o|0O)[0-7]*"
+octal_literal = r"(0o|0O|0)[0-7]*"
 hex_literal = r"0[xX][a-fA-F0-9]+"
 int_literal = r"(" + decimal_literal + r"|" + hex_literal + r"|" + octal_literal + r")"
 
