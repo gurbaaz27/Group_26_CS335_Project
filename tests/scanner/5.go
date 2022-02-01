@@ -1,4 +1,4 @@
-/* switch case*/
+/* switch case and commenting*/
 
 /* test
 multiple line
@@ -14,15 +14,13 @@ import (
 func main() {
 
 	i := 2
-	fmt.Print("Write ", i, " as ")
-	switch i {
-	case 1:
-		fmt.Println("one")
-	case 2:
-		fmt.Println("two")
-	case 3:
-		fmt.Println("three")
-	}
+	var y int = 0x34 //*//* // /*/ /*\*/*///***/*/*/*/*/*/*///***
+
+	/*//This is another comment//*/
+
+	/* /* /* Check for nesting/* * *** /
+	var x int = 0x34
+	/////*/var x int = 0x34
 
 	switch time.Now().Weekday() {
 	case time.Saturday, time.Sunday:
@@ -52,4 +50,14 @@ func main() {
 	whatAmI(true)
 	whatAmI(1)
 	whatAmI("hey")
+
+	s := "Tests for strings."
+	s = " // /* */."
+	s = "\n"
+	s = " \"quotes\""
+	s = "multi
+	iqfiow
+	line."
+	// we have purposely added here a multi-line string, which is not supported
+	// this results in our lexer giving you an illegal character error, as expected
 }

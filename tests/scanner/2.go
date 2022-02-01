@@ -1,28 +1,35 @@
-3 + 40E100 * 100e-10
-+ -20 *2
-E-10
-10.1010
-.0101
-0.00000
-.1001
-.000011e+00001000
-.000e11
-.0000E21
-100.000011e-1
-100.000e10
-10000.121031
+// Slice and For Loop
+package main
 
-0X12345
-023459
-0o2324
-0O23
+import "fmt"
 
- var a int
+func main() {
+	/* This is a slice
+	declaration only */s := make([]string, 3) // random comment
 
- break        default      func           
- case                                  struct
-        else                package      switch
- const          if           range        type
- continue     for          import       return       var
+	fmt.Println("emp🚀", s) // This is a valid emoji inside the string
+	s[0] = "abc"
+	s[1] = "bcd"
+	s[2] = "c"
+	fmt.Println("set:", s)
+	fmt.Println("get:", s[2])
 
- var in float32
+	fmt.Println("len:", len(s))
+
+	s = append(s, "d")
+	s = append(s, "e", "f")
+	twoD := make([][]int, 3)
+	for i := 0; i < 3; i++ {
+		innerLen := i + 1
+		twoD[i] = make([]int, innerLen)
+		for j := 0; j < innerLen; j++ {
+			twoD[i][j] = i + j
+		}
+	}
+
+	i := 1
+	for i <= 3 {
+		fmt.Println(i)
+		i = i + 1
+	}
+}
