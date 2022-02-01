@@ -16,7 +16,7 @@ from ply.lex import TOKEN
 
 
 FAIL = "\033[91m"
-
+prev =0 
 
 KEYWORDS = [
     "break",
@@ -164,7 +164,7 @@ t_SEMICOLON = r";"
 decimal_literal = r"[1-9][0-9]*"
 octal_literal = r"(0|0o|0O)[0-7]*"
 hex_literal = r"0[xX][a-fA-F0-9]+"
-int_literal = r"(" + decimal_literal + r"|" + octal_literal + r"|" + hex_literal + r")"
+int_literal = r"(" + decimal_literal + r"|" + hex_literal + r"|" + octal_literal + r")"
 
 ## Making regex for float literals
 number = r"(0|[1-9][0-9]*)"
@@ -179,12 +179,15 @@ float_literal = r"(" + float_type1 + r"|" + float_type2 + r"|" + float_type3 + r
 bool_literal = r"true|false"
 
 ## Making regex for comment
-# start_comment = r"//.*"
-
-# end_comment =
-# comment_regex = r"(" + start_comment + r"|" + r"|" end_comment + r")"
+comment_type1 = r"//.*" # Single line comment
+comment_type2_1 = r"(\*[^\/])"  # Multiline with *
+comment_type2_2 = r"[^*]"    # Multiline without *
+comment_regex =  r"(" + comment_type1 + r"|" + r"\/\*(" + comment_type2_1 + r"|" +  comment_type2_2 + r")*\*\/)"
 
 ## Making regex for string literals
+string_type1 = r"\\[^\n]" # contains backslash
+string_type2 = r"[^\"\\\n]" # doesn't contain backslash , "*", newline
+string_regex = r"(" + r"\"(" + string_type1 + r"|" + string_type2 + r")*\")"
 
 
 @TOKEN(bool_literal)
@@ -222,26 +225,20 @@ def t_INTCONST(t):
     return t
 
 
-# @TOKEN(comment_regex)
+# 
+@TOKEN(comment_regex)
 def t_COMMENT(t):
-    r"(//.*|\/\*((\*[^\/])|[^*])*\*\/)"
     spl = t.value.split("\n")
     curr_len = len(t.value)
     end = t.lexpos + curr_len - 1
-    t.lexer.prev = end - len(spl[len(spl) - 1])
+    global prev
+    prev = end - len(spl[len(spl) - 1])
     t.lexer.lineno += len(spl) - 1
     pass
 
 
-# @TOKEN(string_literal)
+@TOKEN(string_regex)
 def t_STRING(t):
-    r"(\"(\\[^\n]|[^\"\\\n])*\")"
-    spl = t.value.split("\n")
-    ## Update line no.
-    curr_len = len(t.value)
-    end = t.lexpos + curr_len - 1
-    t.lexer.prev = end - len(spl[len(spl) - 1])
-    t.lexer.lineno += len(spl) - 1
     return t
 
 
@@ -250,7 +247,8 @@ def t_NEWLINES(t):
     ## Update line no.
     curr_len = len(t.value)
     t.lexer.lineno += curr_len
-    t.lexer.prev = t.lexpos + curr_len - 1
+    global prev
+    prev = t.lexpos + curr_len - 1
     pass
 
 
@@ -259,20 +257,18 @@ def t_error(t):
     t.lexer.skip(1)
 
 
-# def columnno(t):
-#     ## Resolve errors
-#     return t.lexpos - t.lexer.prev
+def columnno(t):
+    ## Resolve errors
+    global prev
+    return t.lexpos - prev
 
 
-def columnno(input, token):
-    line_start = input.rfind("\n", 0, token.lexpos) + 1
-    return (token.lexpos - line_start) + 1
+
 
 
 t_ignore = " \t"
 
 lexer = lex.lex()
-lexer.prev = 0
 
 
 if __name__ == "__main__":
@@ -295,4 +291,4 @@ if __name__ == "__main__":
         tok = lexer.token()
         if not tok:
             break
-        print(formatter.format(tok.type, tok.value, tok.lineno, columnno(program, tok)))
+        print(formatter.format(tok.type, tok.value, tok.lineno, columnno(tok)))
