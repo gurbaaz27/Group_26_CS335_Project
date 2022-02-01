@@ -15,8 +15,17 @@ import ply.lex as lex
 from ply.lex import TOKEN
 
 
-FAIL = "\033[91m"
-prev =0 
+class Format:
+    """
+    Collection of ANSI escape sequences to format strings
+    """
+
+    fail = "\033[91m"
+    end = "\033[0m"
+    underline = "\033[4m"
+
+
+prev = 0
 
 KEYWORDS = [
     "break",
@@ -38,7 +47,6 @@ KEYWORDS = [
     "var",
 ]
 
-
 SPECIAL_WORDS = [
     "int8",
     "int16",
@@ -54,7 +62,6 @@ SPECIAL_WORDS = [
     "bool",
     "string",
 ]
-
 
 RESERVED = KEYWORDS + SPECIAL_WORDS
 
@@ -111,9 +118,14 @@ tokens = (
         "FLOATCONST",
         "INTCONST",
         "BOOLCONST",
+        "STRINGCONST",
+        "COMMENT",
+        "NEWLINE",
     ]
     + [word.upper() for word in RESERVED]
 )
+
+characters_to_ignore = [" ", "\t"]
 
 t_RIGHT_SHIFT_EQUAL = r">>="
 t_LEFT_SHIFT_EQUAL = r"<<="
@@ -179,14 +191,23 @@ float_literal = r"(" + float_type1 + r"|" + float_type2 + r"|" + float_type3 + r
 bool_literal = r"true|false"
 
 ## Making regex for comment
-comment_type1 = r"//.*" # Single line comment
+comment_type1 = r"//.*"  # Single line comment
 comment_type2_1 = r"(\*[^\/])"  # Multiline with *
-comment_type2_2 = r"[^*]"    # Multiline without *
-comment_regex =  r"(" + comment_type1 + r"|" + r"\/\*(" + comment_type2_1 + r"|" +  comment_type2_2 + r")*\*\/)"
+comment_type2_2 = r"[^*]"  # Multiline without *
+comment_regex = (
+    r"("
+    + comment_type1
+    + r"|"
+    + r"\/\*("
+    + comment_type2_1
+    + r"|"
+    + comment_type2_2
+    + r")*\*\/)"
+)
 
 ## Making regex for string literals
-string_type1 = r"\\[^\n]" # contains backslash
-string_type2 = r"[^\"\\\n]" # doesn't contain backslash , "*", newline
+string_type1 = r"\\[^\n]"  # contains backslash
+string_type2 = r"[^\"\\\n]"  # doesn't contain backslash , "*", newline
 string_regex = r"(" + r"\"(" + string_type1 + r"|" + string_type2 + r")*\")"
 
 
@@ -225,9 +246,9 @@ def t_INTCONST(t):
     return t
 
 
-# 
 @TOKEN(comment_regex)
 def t_COMMENT(t):
+    ## Updates line no. and prev global variable
     spl = t.value.split("\n")
     curr_len = len(t.value)
     end = t.lexpos + curr_len - 1
@@ -238,13 +259,17 @@ def t_COMMENT(t):
 
 
 @TOKEN(string_regex)
-def t_STRING(t):
+def t_STRINGCONST(t):
+    """
+    Note that Go does not support multiline strings,
+    and we intend it keep it the same.
+    """
     return t
 
 
-def t_NEWLINES(t):
+def t_NEWLINE(t):
     r"\n+"
-    ## Update line no.
+    ## Updates line no. and prev global variable
     curr_len = len(t.value)
     t.lexer.lineno += curr_len
     global prev
@@ -253,20 +278,35 @@ def t_NEWLINES(t):
 
 
 def t_error(t):
-    print(FAIL + f"Illegal character '{t.value[0]}', at lineno {t.lexer.lineno}")
+    """
+    Custom error function for lexer.
+
+    Nicely formats the error message in red color
+    """
+    error = "> Illegal character '{}', at line#{} and column#{}"
+    try:
+        print(
+            Format.fail
+            + error.format(t.value[0], t.lexer.lineno, columnno(t))
+            + Format.end
+        )
+    except:
+        print(error.format(t.value[0], t.lexer.lineno, columnno(t)))
     t.lexer.skip(1)
 
 
 def columnno(t):
-    ## Resolve errors
+    """
+    Custom utility to find column no of each lexeme.
+
+    Global variable `prev` stores the index position of last lexeme (which is '\n') on line
+    previous to that of given lexeme. Hence, t.lexpos - prev outputs the desired column no.
+    """
     global prev
     return t.lexpos - prev
 
 
-
-
-
-t_ignore = " \t"
+t_ignore = "".join(characters_to_ignore)
 
 lexer = lex.lex()
 
@@ -283,10 +323,15 @@ if __name__ == "__main__":
 
     lexer.input(program)
 
-    formatter = "{:<20} {:<20} {:<20} {:<20}"
-    print(formatter.format("Token", "Lexeme", "Line#", "Column#"))
+    header_formatter = Format.underline + "{:<20} {:<20} {:<10} {:<10}" + Format.end
+    formatter = "{:<20} {:<20} {:<10} {:<10}"
+    header = ["Token", "Lexeme", "Line#", "Column#"]
+    try:
+        print(header_formatter.format(*header))
+    except:
+        print(formatter.format(*header))
 
-    ## Our tab '\t' uses 1 column
+    ## Note: Our tab '\t' uses 1 column
     while True:
         tok = lexer.token()
         if not tok:
