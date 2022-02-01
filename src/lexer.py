@@ -164,7 +164,7 @@ t_SEMICOLON = r";"
 decimal_literal = r"[1-9][0-9]*"
 octal_literal = r"(0|0o|0O)[0-7]*"
 hex_literal = r"0[xX][a-fA-F0-9]+"
-int_literal = r"(" + decimal_literal + r"|" + octal_literal + r"|" + hex_literal + r")"
+int_literal = r"(" + decimal_literal + r"|" + hex_literal + r"|" + octal_literal + r")"
 
 ## Making regex for float literals
 number = r"(0|[1-9][0-9]*)"
