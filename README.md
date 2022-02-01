@@ -16,7 +16,7 @@ Our SIT triplet is (Go, Python, MIPS).
     - In this milestone, we had to provide the details of our Compiler. 
     - Deliverables
         - `docs/specs.pdf`
-- [ ] Milestone 2 : Scanner
+- [x] Milestone 2 : Scanner
     - _Due on: 01.02.2022_
     - In this milestone, we had to construct a scanner for the source language to output the tokens in a tabular form.
     - Deliverables
@@ -35,7 +35,7 @@ git clone git@github.com:gurbaaz27/CS335-Course-Project.git
 cd CS335-Course-Project/
 ```
 
-#### a. Milestone 2: Scanner
+### a. Milestone 2: Scanner
 
 There are 5 test-cases present in `tests/scanner/` directory.
 To run the test cases, simply run
@@ -52,6 +52,22 @@ In case no test variable is mentioned,`make` defaults to `test=1`, i.e.
 make ## is equivalent to
 make test=1
 ```
+
+In case you want to run all test-cases at once, run
+
+```bash
+make all
+```
+
+If you do not have `make` installed, you can simply run the python script using
+
+```bash
+python src/lexer.py tests/scanner/<test_num>.go
+## For example,
+python src/lexer.py tests/scanner/2.go
+```
+
+> __*NOTE*__ : We do not print COMMENT and NEWLINE in our output, since they have no role in parser.
 
 ## iii. Group Members
 
