@@ -12,12 +12,12 @@ Our SIT triplet is (Go, Python, MIPS).
 ## i. Timeline
 
 - [x] Milestone 1 : Specs 
-    - _Due on: 24.01.2022_
+    - Due on: 24.01.2022
     - In this milestone, we had to provide the details of our Compiler. 
     - Deliverables
         - `docs/specs.pdf`
 - [x] Milestone 2 : Scanner
-    - _Due on: 01.02.2022_
+    - Due on: 01.02.2022
     - In this milestone, we had to construct a scanner for the source language to output the tokens in a tabular form.
     - Deliverables
         - `src/lexer.py`
@@ -69,7 +69,7 @@ python src/lexer.py tests/scanner/2.go
 
 > __*NOTE 1*__ : *We do not print COMMENT and NEWLINE in our output, since they have no role in parser.*
 
-> __*NOTE 2*__ : *We have purposely added an illegal character in 5th test-case, which should result our lexer throw an error message on encountering that character.*
+> __*NOTE 2*__ : *We have purposely added an illegal character in 5th test-case, which should result our lexer throw an error message on encountering that character(s).*
 
 ## iii. Group Members
 
