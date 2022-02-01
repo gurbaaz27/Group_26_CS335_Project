@@ -67,7 +67,9 @@ python src/lexer.py tests/scanner/<test_num>.go
 python src/lexer.py tests/scanner/2.go
 ```
 
-> __*NOTE*__ : We do not print COMMENT and NEWLINE in our output, since they have no role in parser.
+> __*NOTE 1*__ : *We do not print COMMENT and NEWLINE in our output, since they have no role in parser.*
+
+> __*NOTE 2*__ : *We have purposely added an illegal character in 5th test-case, which should result our lexer throw an error message on encountering that character.*
 
 ## iii. Group Members
 
