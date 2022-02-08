@@ -28,11 +28,12 @@ Our SIT triplet is (Go, Python, MIPS).
 
 ## ii. Usage Guidelines
 
-Clone the repository and navigate into the directory
+Clone the repository, navigate into the directory and install the dependencies
 
 ```bash
 git clone git@github.com:gurbaaz27/CS335-Course-Project.git
 cd CS335-Course-Project/
+pip install -r requirements.txt
 ```
 
 ### a. Milestone 2: Scanner
