@@ -123,7 +123,8 @@ tokens = (
         "COMMENT",
         "NEWLINE",
     ]
-    + [word.upper() for word in RESERVED] + "NEWLINE"
+    + [word.upper() for word in RESERVED]
+    + "NEWLINE"
 )
 
 characters_to_ignore = [" ", "\t"]
