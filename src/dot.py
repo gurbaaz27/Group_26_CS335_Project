@@ -1,17 +1,29 @@
+##########################
+## Milestone 3 : CS335A ##
+########################################
+## Submission Date: February 18, 2022 ##
+########################################
+
+__author__ = "Group 26, CS335A"
+__filename__ = "dot.py"
+__description__ = "Generates graph of Parser Automaton."
+
 import pydot
+# from datetime import datetime
 
 
-##Global color encoding
+## Global color encoding
 BLUE = "#1e81b0"
 GREEN = "#3e9632"
 RED = "#cb3d0f"
 SHAPE = "circle"
+
 line_nonterminal = "Nonterminals,"
 line_terminal = "Terminals,"
 line_parsing = "Parsing"
 
 graph = pydot.Dot(graph_type="digraph")
-file1 = open("p.output", "r")
+file1 = open("parser.out", "r")
 Lines = file1.readlines()
 
 count = 0
@@ -50,9 +62,9 @@ for line in Lines:
         node[name] = n
 
 
-###########################################################################
-## GRAPH
-###########################################################################
+###########
+## GRAPH ##
+###########
 
 for i in node.values():
     graph.add_node(i)
@@ -88,9 +100,12 @@ for line in Lines:
         )
 
 
-# and we are done
-graph.write_png("example2_graph.png")
-# output_raw = graph.to_string()
-graph.write_dot("a.dot")
-print(terminals)
-print(nonterminals)
+## Save graph as image
+graph.write_dot("graph.dot")
+
+# curr_date = datetime.now().strftime("%d%M%Y-%H%M%S")
+graph.write_png("graph.png")
+## Save graph as dot file
+# Debugging
+# print(terminals)
+# print(nonterminals)
