@@ -160,4 +160,17 @@ def p_Fields(p):
 def p_FieldDecl(p):
     """FieldDecl: IDENTIFIER Type
     """
-
+    
+# Function Declaration
+def p_func_decl(p):
+  '''FunctionDecl : FUNC FunctionName Signature  FunctionBody  
+     FunctionName : identifier 
+     FunctionBody : Block 
+     Signature    : Parameters Result
+                  | Parameters
+     Result       :  Type 
+    Parameters    : LEFT_PARENTH RIGHT_PARENTH
+                  | LEFT_PARENTH ParameterList RIGHT_PARENTH
+    ParameterList  : ParameterDecl COMMA ParameterList
+                   | ParameterDecl  
+    ParameterDecl  : identifier Type '''

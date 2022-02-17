@@ -25,7 +25,7 @@ class Format:
     underline = "\033[4m"
 
 
-prev = 0
+prev = -1
 
 KEYWORDS = [
     "break",
@@ -123,7 +123,7 @@ tokens = (
         "COMMENT",
         "NEWLINE",
     ]
-    + [word.upper() for word in RESERVED]
+    + [word.upper() for word in RESERVED] + "NEWLINE"
 )
 
 characters_to_ignore = [" ", "\t"]
@@ -275,7 +275,7 @@ def t_NEWLINE(t):
     t.lexer.lineno += curr_len
     global prev
     prev = t.lexpos + curr_len - 1
-    pass
+    return t
 
 
 def t_error(t):
