@@ -42,16 +42,7 @@ precedence = (
     ("left", "RIGHT_SHIFT", "LEFT_SHIFT"),
     ("left", "PLUS", "MINUS"),
     ("left", "STAR", "DIV", "MOD"),
-    # (
-    #     "right",
-    #     "NOT",
-    #     "UPLUS",
-    #     "UMINUS",
-    #     "INCREMENT",
-    #     "DECREMENT",
-    #     "DEREF_AND",
-    #     "POINTER_STAR",
-    # ),
+    ("left",  "RIGHT_PARENTH", "LEFT_PARENTH", "LEFT_BRACE", "RIGHT_BRACE", "LEFT_SQUARE", "RIGHT_SQUARE", "INCREMENT", "DECREMENT"),
 )
 
 
@@ -68,9 +59,7 @@ def p_empty(p):
 
 
 def p_EOS(p):
-    """EOS : NEWLINE
-    | SEMICOLON
-    """
+    """EOS : SEMICOLON """
 
 
 #################
@@ -174,6 +163,7 @@ def p_Block(p):
 
 def p_StatementList(p):
     """StatementList : Statement EOS StatementList
+    | EOS StatementList
     | empty"""
 
 
@@ -222,7 +212,6 @@ def p_TopLevelDecl(p):
 
 def p_TopLevelDeclList(p):
     """TopLevelDeclList : TopLevelDecl EOS TopLevelDeclList 
-    | TopLevelDecl
     | empty"""
 
 
@@ -265,7 +254,9 @@ def p_VarDecl(p):
 
 ## VarSpec
 def p_VarSpec(p):
-    """VarSpec : IDENTIFIER"""
+    """VarSpec : IDENTIFIER Type ASSIGN Expression
+    | IDENTIFIER ASSIGN Expression
+    | IDENTIFIER Type"""
 
 
 ## SIMPLE STATEMENT
@@ -523,7 +514,7 @@ def p_ForClause(p):
 
 def p_error(p):
     if p:
-        print("Syntax error at token", p.type)
+        print("Syntax error at token ", p.type,"  Line Number  ",p.lineno)
         # Just discard the token and tell the parser it's okay.
         parser.errok()
     else:
