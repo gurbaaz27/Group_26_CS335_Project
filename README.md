@@ -26,11 +26,12 @@ Our SIT triplet is (Go, Python, MIPS).
         - `tests/scanner/`
         - `docs/lexer.md`
         - `Makefile`
-- [ ] Milestone 3 : Parser
+- [x] Milestone 3 : Parser
     - Due on: 18.02.2022
     - In this milestone, you have to develop a parser for the source language that outputs the Parser Automaton in a graphical form.
     - Deliverables
         - `src/parser.py`
+        - `src/dot.py`
         - `tests/parser/`
         - `docs/parser.md`
         - `Makefile` 
@@ -99,18 +100,35 @@ make parser ## is equivalent to
 make parser test=1
 ```
 
-In case you want to run all test-cases at once, run
-
-```bash
-make parser-all
-```
-
 If you do not have `make` installed, you can simply run the python script using
 
 ```bash
 python src/parser.py tests/parser/<test_num>.go ## or python3, according to your system
 ## For example,
 python src/parser.py tests/parser/2.go
+```
+
+This will generate `src/parser.out` and `src/parsetab.py` files and generate dot file named `<test_num>.dot`
+
+Before moving to next test case, make sure to clean the `src/` folder using
+
+```bash
+make clean ## or
+rm -rf src/parser.out
+rm -rf src/parsetab.py
+```
+
+To generate graph from `dot` file, install `graphviz`. For Ubuntu, you can use
+
+```bash
+sudo apt install graphviz
+```
+
+and make graph using
+
+```bash
+make graph test=<test_num> ## or
+dot -Tpdf <test_num>.dot -o <test_num>.pdf
 ```
 
 ## iii. Group Members

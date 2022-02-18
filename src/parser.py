@@ -1,8 +1,8 @@
-##########################
+###########################
 ## Milestone 3  : CS335A ##
-########################################
+#########################################
 ## Submission Date : February 18, 2022 ##
-########################################
+#########################################
 
 __author__ = "Group 26, CS335A"
 __filename__ = "parser.py"
@@ -11,6 +11,9 @@ __description__ = "A parser for the source language that outputs the Parser Auto
 import argparse
 import ply.yacc as yacc
 from lexer import tokens
+from dot import generate_LR_automata
+from time import sleep
+
 
 # from dot import generate_LR_automata
 precedence = (
@@ -61,9 +64,8 @@ def p_EOS(p):
 
 
 #################
-##### TYPE #####
+##### TYPE ######
 #################
-
 
 def p_TypeName(p):
     """TypeName : UINT
@@ -89,8 +91,10 @@ def p_TypeLit(p):
     | ArrayType
     | SliceType
     | PointerType
+    | FunctionType
     """
-
+def p_FunctionType(p):
+   """ FunctionType : FUNC Signature """
 
 def p_Type(p):
     """Type : TypeName
@@ -209,6 +213,7 @@ def p_TopLevelDecl(p):
 
 def p_TopLevelDeclList(p):
     """TopLevelDeclList : TopLevelDecl EOS TopLevelDeclList 
+    | TopLevelDecl
     | empty"""
 
 
@@ -253,21 +258,22 @@ def p_VarDecl(p):
 def p_VarSpec(p):
     """VarSpec : IDENTIFIER Type ASSIGN Expression
     | IDENTIFIER ASSIGN Expression
-    | IDENTIFIER Type"""
+    | IDENTIFIER Type
+    | IDENTIFIER ASSIGN Make_Func
+    | IDENTIFIER Type ASSIGN Make_Func"""
 
 
 ## SIMPLE STATEMENT
 def p_SimpleStmt(p):
-    """SimpleStmt : EmptyStmt
-    | ExpressionStmt
+    """SimpleStmt : ExpressionStmt
     | IncDecStmt
     | Assignment
     | ShortVarDecl"""
 
 
 # 1.
-def p_EmptyStmt(p):
-    """EmptyStmt : empty"""
+# def p_EmptyStmt(p):
+#     """EmptyStmt : empty"""
 
 
 # 2.
@@ -283,7 +289,8 @@ def p_IncDecStmt(p):
 
 # 4.
 def p_Assignment(p):
-    """Assignment : Expression assign_op Expression"""
+    """Assignment : Expression assign_op Expression
+                  | Expression assign_op Make_Func"""
 
 
 ### COVER ALL HERE
@@ -312,23 +319,29 @@ def p_ExpressionList(p):
 ## Primary Expression
 def p_PrimaryExpr(p):
     """
-    PrimaryExpr  : Operand
+    PrimaryExpr : Operand
                 | PrimaryExpr Selector
                 | PrimaryExpr Index
                 | PrimaryExpr Slice
-                | PrimaryExpr Arguments
+                | Arguments
     Selector     : DOT IDENTIFIER
     Index        :  LEFT_SQUARE Expression RIGHT_SQUARE
     Slice        :  LEFT_SQUARE Expression  COLON Expression  RIGHT_SQUARE
                 |  LEFT_SQUARE  COLON  Expression  RIGHT_SQUARE
                 |  LEFT_SQUARE  Expression  COLON  RIGHT_SQUARE
                 |  LEFT_SQUARE COLON RIGHT_SQUARE
-    Arguments   :  LEFT_PARENTH RIGHT_PARENTH
-                |  LEFT_PARENTH ExpressionList RIGHT_PARENTH
-                | LEFT_PARENTH Type RIGHT_PARENTH
-                | LEFT_PARENTH Type COMMA ExpressionList RIGHT_PARENTH
+    Arguments   :  PrimaryExpr LEFT_PARENTH RIGHT_PARENTH
+                |  PrimaryExpr LEFT_PARENTH ExpressionList RIGHT_PARENTH   
     """
 
+def p_Make_Func(p):
+    """Make_Func : MAKE LEFT_PARENTH multidimension TypeName COMMA Expression RIGHT_PARENTH
+    """
+
+def p_multidimension(p):
+    """multidimension : LEFT_SQUARE RIGHT_SQUARE 
+                      | LEFT_SQUARE RIGHT_SQUARE multidimension
+    """
 
 def p_Operand(p):
     """Operand : Literal
@@ -338,12 +351,11 @@ def p_Operand(p):
 
 def p_Literal(p):
     """Literal : BasicLit
-    | CompositeLit
-    | FunctionLit"""
+    | CompositeLit"""
 
 
-def p_FunctionLit(p):
-    """FunctionLit : FUNC Signature FunctionBody"""
+# def p_FunctionLit(p):
+#     """FunctionLit : FUNC Signature FunctionBody"""
 
 
 def p_BasicLit(p):
@@ -358,14 +370,30 @@ def p_OperandName(p):
 
 
 def p_CompositeLit(p):
-    """CompositeLit : LiteralType LiteralValue"""
+    """CompositeLit : LiteralType LiteralValue"""   
 
-
+def p_BasicType(p):
+    """BasicType : UINT
+    | UINT8
+    | UINT16
+    | UINT32
+    | UINT64
+    | INT
+    | INT8
+    | INT16
+    | INT32
+    | INT64
+    | FLOAT32
+    | FLOAT64
+    | BOOL
+    | STRING
+    """
 def p_LiteralType(p):
     """LiteralType : StructType
     | ArrayType
     | SliceType
-    | IDENTIFIER"""
+    | BasicType"""
+
 
 
 def p_LiteralValue(p):
@@ -420,42 +448,43 @@ def p_unary_op(p):
     | BIT_AND"""
 
 
-def p_binary_op(p):
-    """binary_op : OR
-    | AND
-    | rel_op
-    | add_op
-    | mul_op"""
+# def p_binary_op(p):
+#     """binary_op : OR
+#     | AND
+#     | rel_op
+#     | add_op
+#     | mul_op"""
 
 
-def p_rel_op(p):
-    """rel_op : EQUAL
-    | NOT_EQUAL
-    | LESS
-    | GREATER
-    | LESS_EQUAL
-    | GREATER_EQUAL"""
+# def p_rel_op(p):
+#     """rel_op : EQUAL
+#     | NOT_EQUAL
+#     | LESS
+#     | GREATER
+#     | LESS_EQUAL
+#     | GREATER_EQUAL"""
 
 
-def p_add_op(p):
-    """add_op : PLUS
-    | MINUS
-    | BIT_OR
-    | BIT_XOR"""
+# def p_add_op(p):
+#     """add_op : PLUS
+#     | MINUS
+#     | BIT_OR
+#     | BIT_XOR"""
 
 
-def p_mul_op(p):
-    """mul_op : STAR
-    | DIV
-    | MOD
-    | LEFT_SHIFT
-    | RIGHT_SHIFT
-    | BIT_AND"""
+# def p_mul_op(p):
+#     """mul_op : STAR
+#     | DIV
+#     | MOD
+#     | LEFT_SHIFT
+#     | RIGHT_SHIFT
+#     | BIT_AND"""
 
 
 # 5.
 def p_ShortVarDecl(p):
-    """ShortVarDecl : IDENTIFIER COLON_ASSIGN Expression"""
+    """ShortVarDecl : IDENTIFIER COLON_ASSIGN Expression
+                    | IDENTIFIER COLON_ASSIGN Make_Func"""
 
 
 # Function Declaration
@@ -487,10 +516,10 @@ def p_IfStmt(p):
 
 
 def p_SwitchStmt(p):
-    """SwitchStmt : SWITCH  SimpleStmt SEMICOLON Expression LEFT_PARENTH  expr_case_clause_list RIGHT_PARENTH
-    | SWITCH                       Expression LEFT_PARENTH  expr_case_clause_list RIGHT_PARENTH
-    | SWITCH  SimpleStmt SEMICOLON            LEFT_PARENTH  expr_case_clause_list RIGHT_PARENTH
-    | SWITCH                                  LEFT_PARENTH  expr_case_clause_list RIGHT_PARENTH
+    """SwitchStmt : SWITCH  SimpleStmt SEMICOLON Expression LEFT_BRACE  expr_case_clause_list RIGHT_BRACE
+    | SWITCH                       Expression LEFT_BRACE expr_case_clause_list RIGHT_BRACE
+    | SWITCH  SimpleStmt SEMICOLON            LEFT_BRACE  expr_case_clause_list RIGHT_BRACE
+    | SWITCH                                  LEFT_BRACE  expr_case_clause_list RIGHT_BRACE
     """
 
 
@@ -517,41 +546,49 @@ def p_ForStmt(p):
     | FOR ForClause Block
     """
 
-
 def p_ForClause(p):
     """ForClause :  SimpleStmt SEMICOLON Expression SEMICOLON SimpleStmt
-    | SimpleStmt SEMICOLON            SEMICOLON SimpleStmt
+    | SimpleStmt SEMICOLON             SEMICOLON SimpleStmt
+    | SimpleStmt SEMICOLON             SEMICOLON 
+    |            SEMICOLON             SEMICOLON SimpleStmt
+    | SimpleStmt SEMICOLON  Expression SEMICOLON 
+    |            SEMICOLON  Expression SEMICOLON SimpleStmt
+    |            SEMICOLON  Expression SEMICOLON 
+    |            SEMICOLON             SEMICOLON 
     """
 
 
 def p_error(p):
     if p:
         print("Syntax error at token ", p.type,"  Line Number  ",p.lineno)
-        # Just discard the token and tell the parser it's okay.
         parser.errok()
     else:
         print("Syntax error at EOF")
 
 
 parser = yacc.yacc()
-# parser.parse()
 
-with open("../tests/parser/1.go") as f :
-    program = f.read()
 
-parser.parse(program)
-# if __name__ == "__main__" :
-#     parser = argparse.ArgumentParser(
-#         description="A parser for the source language that outputs the Parser Automaton in a graphical form."
-#     )
-#     parser.add_argument("filepath", type=str, help="Path for your go program")
-#     args = parser.parse_args()
+if __name__ == "__main__" :
+    argparser = argparse.ArgumentParser(
+        description="A parser for the source language that outputs the Parser Automaton in a graphical form."
+    )
+    argparser.add_argument("filepath", type=str, help="Path for your go program")
+    args = argparser.parse_args()
 
-#     with open(args.filepath) as f :
-#         program = f.read()
+    with open(args.filepath) as f :
+        program = f.read().rstrip() + '\n'
+    
+    print("Parser initiated")
 
-#     lexer.input(program)
+    result = parser.parse(program)
 
-#     result = parser.parse(program)
+    print("Parser success")
 
-#     generate_LR_automata(result)
+    print("Generating LR automata dot file")
+
+    dotfilename = args.filepath.split("/")[-1].split(".")[0] + ".dot"
+
+    generate_LR_automata(dotfilename)
+
+    print("Generating LR automata dot file success")

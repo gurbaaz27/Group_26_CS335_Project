@@ -26,6 +26,7 @@ class Format:
 
 
 prev = -1
+insert_semicolon = False
 
 KEYWORDS = [
     "break",
@@ -62,58 +63,105 @@ SPECIAL_WORDS = [
     "uint",
     "bool",
     "string",
+    "make",
 ]
 
 RESERVED = KEYWORDS + SPECIAL_WORDS
 
-OPERATORS_AND_PUNCTUATIONS = [
-    "RIGHT_SHIFT_EQUAL",
-    "LEFT_SHIFT_EQUAL",
-    "RIGHT_SHIFT",
-    "LEFT_SHIFT",
-    "PLUS_ASSIGN",
-    "MINUS_ASSIGN",
-    "STAR_ASSIGN",
-    "DIV_ASSIGN",
-    "MOD_ASSIGN",
-    "AND_ASSIGN",
-    "OR_ASSIGN",
-    "XOR_ASSIGN",
-    "COLON_ASSIGN",
-    "AND",
-    "OR",
-    "INCREMENT",
-    "DECREMENT",
-    "EQUAL",
-    "NOT_EQUAL",
-    "LESS_EQUAL",
-    "GREATER_EQUAL",
-    "PLUS",
-    "MINUS",
-    "STAR",
-    "DIV",
-    "MOD",
-    "BIT_AND",
-    "BIT_OR",
-    "BIT_XOR",
-    "LESS",
-    "GREATER",
-    "ASSIGN",
-    "NOT",
-    "LEFT_PARENTH",
-    "RIGHT_PARENTH",
-    "LEFT_SQUARE",
-    "RIGHT_SQUARE",
-    "LEFT_BRACE",
-    "RIGHT_BRACE",
-    "COMMA",
-    "DOT",
-    "COLON",
-    "SEMICOLON",
+OPERATORS_AND_PUNCTUATIONS = {
+    ">>=": "RIGHT_SHIFT_EQUAL",
+    "<<=": "LEFT_SHIFT_EQUAL",
+    ">>": "RIGHT_SHIFT",
+    "<<": "LEFT_SHIFT",
+    "+=": "PLUS_ASSIGN",
+    "-=": "MINUS_ASSIGN",
+    "*=": "STAR_ASSIGN",
+    "/=": "DIV_ASSIGN",
+    "%=": "MOD_ASSIGN",
+    "&=": "AND_ASSIGN",
+    "|=": "OR_ASSIGN",
+    "^=": "XOR_ASSIGN",
+    ":=": "COLON_ASSIGN",
+    "&&": "AND",
+    "||": "OR",
+    "++": "INCREMENT",
+    "--": "DECREMENT",
+    "==": "EQUAL",
+    "!=": "NOT_EQUAL",
+    "<=": "LESS_EQUAL",
+    ">=": "GREATER_EQUAL",
+    "+": "PLUS",
+    "-": "MINUS",
+    "*": "STAR",
+    "/": "DIV",
+    "%": "MOD",
+    "&": "BIT_AND",
+    "|": "BIT_OR",
+    "^": "BIT_XOR",
+    "<": "LESS",
+    ">": "GREATER",
+    "=": "ASSIGN",
+    "!": "NOT",
+    "(": "LEFT_PARENTH",
+    ")": "RIGHT_PARENTH",
+    "[": "LEFT_SQUARE",
+    "]": "RIGHT_SQUARE",
+    "{": "LEFT_BRACE",
+    "}": "RIGHT_BRACE",
+    ",": "COMMA",
+    ".": "DOT",
+    ":": "COLON",
+    ";": "SEMICOLON",
+}
+
+OPERATORS_AND_PUNCTUATIONS_REGEX = [
+    r">>=",
+    r"<<=",
+    r">>",
+    r"<<",
+    r"\+=",
+    r"-=",
+    r"\*=",
+    r"/=",
+    r"%=",
+    r"&=",
+    r"\|=",
+    r"\^=",
+    r":=",
+    r"&&",
+    r"\|\|",
+    r"\+\+",
+    r"--",
+    r"==",
+    r"!=",
+    r"<=",
+    r">=",
+    r"\+",
+    r"-",
+    r"\*",
+    r"/",
+    r"%",
+    r"&",
+    r"\|",
+    r"\^",
+    r"<",
+    r">",
+    r"=",
+    r"!",
+    r"\(",
+    r"\)",
+    r"\[",
+    r"\]",
+    r"\{",
+    r"\}",
+    r",",
+    r"\.",
+    r":",
+    r";",
 ]
 
 tokens = (
-    OPERATORS_AND_PUNCTUATIONS
+    list(OPERATORS_AND_PUNCTUATIONS.values())
     + [
         "IDENTIFIER",
         "FLOATCONST",
@@ -127,51 +175,6 @@ tokens = (
 )
 
 characters_to_ignore = [" ", "\t"]
-
-t_RIGHT_SHIFT_EQUAL = r">>="
-t_LEFT_SHIFT_EQUAL = r"<<="
-t_RIGHT_SHIFT = r">>"
-t_LEFT_SHIFT = r"<<"
-t_PLUS_ASSIGN = r"\+="
-t_MINUS_ASSIGN = r"-="
-t_STAR_ASSIGN = r"\*="
-t_DIV_ASSIGN = r"/="
-t_MOD_ASSIGN = r"%="
-t_AND_ASSIGN = r"&="
-t_OR_ASSIGN = r"\|="
-t_XOR_ASSIGN = r"\^="
-t_COLON_ASSIGN = r":="
-t_AND = r"&&"
-t_OR = r"\|\|"
-t_INCREMENT = r"\+\+"
-t_DECREMENT = r"--"
-t_EQUAL = r"=="
-t_NOT_EQUAL = r"!="
-t_LESS_EQUAL = r"<="
-t_GREATER_EQUAL = r">="
-t_PLUS = r"\+"
-t_MINUS = r"-"
-t_STAR = r"\*"
-t_DIV = r"/"
-t_MOD = r"%"
-t_BIT_AND = r"&"
-t_BIT_OR = r"\|"
-t_BIT_XOR = r"\^"
-t_LESS = r"<"
-t_GREATER = r">"
-t_ASSIGN = r"="
-t_NOT = "!"
-t_LEFT_PARENTH = r"\("
-t_RIGHT_PARENTH = r"\)"
-t_LEFT_SQUARE = r"\["
-t_RIGHT_SQUARE = r"\]"
-t_LEFT_BRACE = r"\{"
-t_RIGHT_BRACE = r"\}"
-t_COMMA = r","
-t_DOT = r"\."
-t_COLON = r":"
-t_SEMICOLON = r";"
-
 
 ## Making regex for integer literals
 decimal_literal = r"[1-9][0-9]*"
@@ -212,12 +215,23 @@ string_type2 = r"[^\"\\\n]"  # doesn't contain backslash , "*", newline
 string_regex = r"(" + r"\"(" + string_type1 + r"|" + string_type2 + r")*\")"
 
 
+operators_and_punctuations_regex = (
+    r"(" + r"|".join(OPERATORS_AND_PUNCTUATIONS_REGEX) + r")"
+)
+
+## End reserved
+end_operators = ("++", "--", "}", ")", "]")
+end_reserved = ["break", "continue", "return"] + SPECIAL_WORDS
+
+
 @TOKEN(bool_literal)
 def t_BOOLCONST(t):
     """
     Check for boolean constants
     It is kept above t_IDENTIFIER function to avoid true and false being classfied as IDENTIFIER
     """
+    global insert_semicolon
+    insert_semicolon = True
     return t
 
 
@@ -226,6 +240,15 @@ def t_IDENTIFIER(t):
     r"[a-zA-Z_][a-zA-Z0-9_]*"
     if t.value in RESERVED:
         t.type = t.value.upper()
+
+    global insert_semicolon
+    if t.value in end_reserved:
+        insert_semicolon = True
+    else:
+        insert_semicolon = False
+
+    if t.value not in RESERVED:
+        insert_semicolon = True
     return t
 
 
@@ -236,6 +259,8 @@ def t_FLOATCONST(t):
     It is placed above t_INTCONST to avoid, for example,
     misclassifying 12.12, which is FLOATCONST as INTCONST followed by DOT followed by INTCONST
     """
+    global insert_semicolon
+    insert_semicolon = True
     return t
 
 
@@ -244,6 +269,8 @@ def t_INTCONST(t):
     """
     Check for integer constants like 2, 0x4, 0o25
     """
+    global insert_semicolon
+    insert_semicolon = True
     return t
 
 
@@ -263,8 +290,22 @@ def t_COMMENT(t):
 def t_STRINGCONST(t):
     """
     Note that Go does not support multiline strings,
-    and we intend it keep it the same.
+    and we intend to keep it the same.
     """
+    global insert_semicolon
+    insert_semicolon = True
+    return t
+
+
+@TOKEN(operators_and_punctuations_regex)
+def t_OPERATORS_AND_PUNCTUATIONS(t):
+    global insert_semicolon
+    if t.value in OPERATORS_AND_PUNCTUATIONS.keys():
+        t.type = OPERATORS_AND_PUNCTUATIONS[t.value]
+    if t.value in end_operators:
+        insert_semicolon = True
+    else:
+        insert_semicolon = False
     return t
 
 
@@ -275,7 +316,13 @@ def t_NEWLINE(t):
     t.lexer.lineno += curr_len
     global prev
     prev = t.lexpos + curr_len - 1
-    pass
+    ## Insertion check of semicolon
+    global insert_semicolon
+    if insert_semicolon:
+        t.type = "SEMICOLON"
+        insert_semicolon = False
+        return t
+
 
 def t_eof(t):
     return None

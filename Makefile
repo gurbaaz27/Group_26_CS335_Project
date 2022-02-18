@@ -9,6 +9,10 @@ scanner:
 	python src/lexer.py tests/scanner/${test}.go
 
 
+graph:
+	dot -Tpdf ${test}.dot -o ${test}.pdf
+
+
 scanner-all:
 	for f in tests/scanner/*; do \
 		python src/lexer.py $$f; \
@@ -20,12 +24,6 @@ scanner-all:
 	done
 
 
-parser-all:
-	for f in tests/parser/*; do \
-		python src/parser.py $$f; \
-		if [ $$? -eq 0 ]; then \
-			echo "✅ Test case $$number successful"; \
-		else \
-			echo "❌ Test case $$number unsuccessful"; \
-		fi; \
-	done
+clean:
+	rm -rf src/parser.out
+	rm -rf src/parsetab.py
