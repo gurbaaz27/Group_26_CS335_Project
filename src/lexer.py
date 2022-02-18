@@ -275,7 +275,10 @@ def t_NEWLINE(t):
     t.lexer.lineno += curr_len
     global prev
     prev = t.lexpos + curr_len - 1
-    return t
+    pass
+
+def t_eof(t):
+    return None
 
 
 def t_error(t):
