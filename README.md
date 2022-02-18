@@ -131,6 +131,8 @@ make graph test=<test_num> ## or
 dot -Tpdf <test_num>.dot -o <test_num>.pdf
 ```
 
+> __*NOTE*__ : *We have purposely added an illegal syntx in 5th test-case, which should result our parser throw an error message.*
+
 ## iii. Group Members
 
 Group Number: `26`

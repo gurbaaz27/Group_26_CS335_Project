@@ -12,7 +12,6 @@ import argparse
 import ply.yacc as yacc
 from lexer import tokens
 from dot import generate_LR_automata
-from time import sleep
 
 
 # from dot import generate_LR_automata
@@ -560,7 +559,7 @@ def p_ForClause(p):
 
 def p_error(p):
     if p:
-        print("Syntax error at token ", p.type,"  Line Number  ",p.lineno)
+        print("Syntax error at token ", p.type," and at Line Number  ",p.lineno)
         parser.errok()
     else:
         print("Syntax error at EOF")
