@@ -13,8 +13,6 @@ import ply.yacc as yacc
 from lexer import tokens
 
 # from dot import generate_LR_automata
-
-
 precedence = (
     ("left", "COMMA"),
     (
@@ -137,8 +135,8 @@ def p_StructType(p):
 
 
 def p_Fields(p):
-    """Fields : FieldDecl EOS
-    | FieldDecl EOS Fields"""
+    """Fields : FieldDecl EOS Fields
+    | empty"""
 
 
 def p_FieldDecl(p):
@@ -163,7 +161,6 @@ def p_Block(p):
 
 def p_StatementList(p):
     """StatementList : Statement EOS StatementList
-    | EOS StatementList
     | empty"""
 
 
@@ -216,7 +213,7 @@ def p_TopLevelDeclList(p):
 
 
 def p_SourceFile(p):
-    """SourceFile : TopLevelDeclList"""
+    """SourceFile : TopLevelDeclList  """
 
 
 ## 1. ConstDecl
@@ -320,14 +317,12 @@ def p_PrimaryExpr(p):
                 | PrimaryExpr Index
                 | PrimaryExpr Slice
                 | PrimaryExpr Arguments
-
     Selector     : DOT IDENTIFIER
     Index        :  LEFT_SQUARE Expression RIGHT_SQUARE
     Slice        :  LEFT_SQUARE Expression  COLON Expression  RIGHT_SQUARE
                 |  LEFT_SQUARE  COLON  Expression  RIGHT_SQUARE
                 |  LEFT_SQUARE  Expression  COLON  RIGHT_SQUARE
                 |  LEFT_SQUARE COLON RIGHT_SQUARE
-
     Arguments   :  LEFT_PARENTH RIGHT_PARENTH
                 |  LEFT_PARENTH ExpressionList RIGHT_PARENTH
                 | LEFT_PARENTH Type RIGHT_PARENTH
@@ -391,7 +386,24 @@ def p_Element(p):
 ### Expression
 def p_Expression(p):
     """Expression : UnaryExpr
-    | Expression binary_op Expression"""
+    | Expression OR Expression
+    | Expression AND Expression
+    | Expression BIT_OR Expression
+    | Expression BIT_XOR Expression
+    | Expression BIT_AND Expression
+    | Expression EQUAL Expression
+    | Expression NOT_EQUAL Expression
+    | Expression LESS_EQUAL Expression
+    | Expression GREATER_EQUAL Expression
+    | Expression LESS Expression
+    | Expression GREATER Expression
+    | Expression RIGHT_SHIFT Expression
+    | Expression LEFT_SHIFT Expression
+    | Expression PLUS Expression
+    | Expression MINUS Expression
+    | Expression STAR Expression
+    | Expression DIV Expression
+    | Expression MOD Expression"""
 
 
 def p_UnaryExpr(p):
@@ -488,7 +500,7 @@ def p_expr_case_clause_list(p):
     """
 
 
-## expression list external dependency
+## Expression list external dependency
 def p_ExprSwitchCase(p):
     """ExprSwitchCase : CASE ExpressionList
     | DEFAULT
