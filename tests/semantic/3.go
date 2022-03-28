@@ -32,7 +32,7 @@ func main() {
 	case "one":
 		a := 1
 
-	case "two": // Intentional error
+	case "two", 1: // Intentional error
 		a := 1
 
 	case "four", "five", "six":

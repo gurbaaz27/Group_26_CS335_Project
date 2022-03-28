@@ -170,6 +170,9 @@ python src/parser.py tests/semantic/<test_num>.go ## or python3, according to yo
 python src/parser.py tests/semantic/2.go
 ```
 
+> __*NOTE*__ : *We have purposely added wrong semantic in 3rd testcase, which should result our semantic analyser throw an error message.*
+
+
 ## iii. Group Members
 
 Group Number: `26`
