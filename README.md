@@ -8,6 +8,7 @@ Our SIT triplet is (Go, Python, MIPS).
 2. [Usage Guidelines](#ii-usage-guidelines)
     - [Scanner](#a-milestone-2-scanner)
     - [Parser](#b-milestone-3-parser)
+    - [Semantic Analysis](#c-milestone-4-semantic-analysis)
 3. [Group Members](#iii-group-members)
 4. [Acknowledgement](#iv-acknowledgement)
 
@@ -35,6 +36,16 @@ Our SIT triplet is (Go, Python, MIPS).
         - `tests/parser/`
         - `docs/parser.md`
         - `Makefile` 
+- [x] Milestone 4 : Semantic Analysis
+    - Due on: 22.03.2022
+    - In this milestone, you extend the project to perform semantic analysis. The goal is to convert your program into an AST Representation to be used by later stages (Intermediate and Final code generation, optimization, etc.).
+    - Deliverables
+        - `src/parser.py`
+        - `src/utils.py`
+        - `src/ast_plot.png`
+        - `src/ast.dot`
+        - `Makefile`
+
 
 ## ii. Usage Guidelines
 
@@ -132,6 +143,32 @@ dot -Tpdf <test_num>.dot -o <test_num>.pdf
 ```
 
 > __*NOTE*__ : *We have purposely added an illegal syntx in 5th test-case, which should result our parser throw an error message.*
+
+### c. Milestone 4: Semantic Analysis
+
+There are 5 test-cases present in `tests/scanner/` directory.
+To run the test cases, simply run
+
+```bash
+make semantic test=<test_num>
+## For example,
+make semantic test=2
+```
+
+In case no test variable is mentioned,`make` defaults to `test=1`, i.e.
+
+```bash
+make semantic ## is equivalent to
+make semantic test=1
+```
+
+If you do not have `make` installed, you can simply run the python script using
+
+```bash
+python src/parser.py tests/semantic/<test_num>.go ## or python3, according to your system
+## For example,
+python src/parser.py tests/semantic/2.go
+```
 
 ## iii. Group Members
 
