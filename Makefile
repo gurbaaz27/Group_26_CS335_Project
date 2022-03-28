@@ -1,6 +1,10 @@
 test=1
 
 
+semantic:
+	python src/parser.py tests/semantic/${test}.go
+
+
 parser:
 	python src/parser.py tests/parser/${test}.go
 
