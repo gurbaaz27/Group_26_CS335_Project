@@ -1,0 +1,6 @@
+Scope, Name, Val, Line Num, Type, Children, Array, Function, Level, Field List
+0, struct bed, , , , , , , , [['name', 'STRING'], ['objects', 'ARRAY 0 ARRAY 0 ARRAY 0 INT']]
+0, struct room, , , , , , , , [['beds', 'ARRAY 0 struct bed'], ['cs345', 'FLOAT32']]
+0, struct home, , , , , , , , [['rooms', 'ARRAY 0 ARRAY 0 struct room'], ['bunglos', 'ARRAY 0 ARRAY 0 struct room'], ['cs345', 'INT']]
+0, main, , , void, , , 1, , 
+2, house, , , struct home, , , , , 
