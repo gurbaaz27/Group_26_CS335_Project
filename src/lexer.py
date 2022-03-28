@@ -13,16 +13,7 @@ __description__ = (
 import argparse
 import ply.lex as lex
 from ply.lex import TOKEN
-
-
-class Format:
-    """
-    Collection of ANSI escape sequences to format strings
-    """
-
-    fail = "\033[91m"
-    end = "\033[0m"
-    underline = "\033[4m"
+from utils import Format
 
 
 prev = -1
