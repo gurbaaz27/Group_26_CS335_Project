@@ -70,7 +70,6 @@ def generate_LR_automata(filename):
             n = pydot.Node(name, shape=SHAPE, color=BLACK)
             node[name] = n
 
-
     ###########
     ## GRAPH ##
     ###########
@@ -108,7 +107,6 @@ def generate_LR_automata(filename):
                     color=col,
                 )
             )
-
 
     ## Save graph as raw dot
     print("Entered LR automata")

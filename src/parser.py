@@ -15,11 +15,14 @@ import ply.yacc as yacc
 from lexer import tokens
 from utils import (
     SYMBOL_TABLE_DUMP_FILENAME,
-    write_edge,
-    write_label,
     AST_FILENAME,
     AST_PLOT_FILENAME,
+    write_label,
+    write_edge,
     ignore_lexer_literal,
+    print_compilation_error,
+    print_success,
+    print_failure,
     Node,
     Format,
 )
@@ -167,8 +170,10 @@ def find_if_ID_is_declared(id, lineno):
     if curscp == 0:
         if id in SYMBOL_TABLE[curscp].keys():
             return curscp
-    print(lineno, "COMPILATION ERROR: unary_expression " + id + " not declared")
-    sys.exit()
+    print_compilation_error(
+        lineno, "COMPILATION ERROR: unary_expression " + id + " not declared"
+    )
+
     return -1
 
 
@@ -355,12 +360,12 @@ def p_ArrayLength(p):
         children=[],
     )
     if p[0].type != "intconst":
-        print(
+        print_compilation_error(
             "Compilation Error: Array index at line ",
             p.lineno(1),
             " is not of compatible type",
         )
-        sys.exit()
+
     p[0].ast = add_edges(p)
 
 
@@ -538,22 +543,22 @@ def p_ReturnStmt(p):
         p[0].ast = add_edges(p)
 
         if _current_function_return_type != "void":
-            print(
+            print_compilation_error(
                 "COMPILATION ERROR at line "
                 + str(p.lineno(1))
                 + ": function return type is not void"
             )
-            sys.exit()
+
     else:
 
         if p[2].type != "" and _current_function_return_type != p[2].type:
-            print(
+            print_compilation_error(
                 "COMPLIATION ERROR at line "
                 + str(p.lineno(1))
                 + ": function return type is not "
                 + p[2].type
             )
-            sys.exit()
+
         p[0] = Node(
             name="ReturnStmt", val="", type="", line_num=p.lineno(1), children=[]
         )
@@ -569,15 +574,14 @@ def p_BreakStmt(p):
     p[0] = Node(name="BreakStmt", val="", type="", line_num=p.lineno(1), children=[])
     p[0].ast = add_edges(p)
     if p[2].type != "intconst":
-        print(
+        print_compilation_error(
             "COMPILATION ERROR at line "
             + str(p[0].line_num)
             + "argument to  break should be a constant"
         )
-        sys.exit()
+
     if _loop_depth == 0 or _switch_depth == 0:
-        print(p[0].line_num, ": break not inside loop")
-        sys.exit()
+        print_compilation_error(p[0].line_num, ": break not inside loop")
 
 
 ## CONTINUE STATEMENT
@@ -588,8 +592,7 @@ def p_ContinueStmt(p):
     p[0].ast = add_edges(p)
 
     if _loop_depth == 0:
-        print(p[0].line_num, ": continue not inside loop")
-        sys.exit()
+        print_compilation_error(p[0].line_num, ": continue not inside loop")
 
 
 ## DECLARATION
@@ -649,14 +652,13 @@ def p_ConstSpec(p):
     else:
         lexeme = p[1]
     if lexeme in SYMBOL_TABLE[_current_scope].keys():
-        print(
+        print_compilation_error(
             "COMPILATION ERROR at line "
             + str(p.lineno(1))
             + " : "
             + lexeme
             + " already declared "
         )
-        sys.exit()
 
     if len(p) == 5:
         if p[2].type != p[4].type:
@@ -664,13 +666,13 @@ def p_ConstSpec(p):
             if p[4].type not in ["intconst", "floatconst", "stringconst", "boolconst"]:
 
                 ##TODO: correct 2.go
-                print(
+                print_compilation_error(
                     "COMPILATION ERROR at line "
                     + str(p.lineno(1))
                     + " : "
                     + "Expression and specified type do not match"
                 )
-                sys.exit()
+
             elif (
                 p[2].type
                 in [
@@ -687,46 +689,45 @@ def p_ConstSpec(p):
                 ]
                 and p[4].type != "intconst"
             ):
-                print(
+                print_compilation_error(
                     "COMPILATION ERROR at line "
                     + str(p.lineno(1))
                     + " : "
                     + "Expression and specified type do not match"
                 )
-                sys.exit()
+
             elif p[2].type in ["FLOAT32", "FLOAT64"] and not (
                 p[4].type == "intconst" or p[4].type == "floatconst"
             ):
-                print(
+                print_compilation_error(
                     "COMPILATION ERROR at line "
                     + str(p.lineno(1))
                     + " : "
                     + "Expression and specified type do not match"
                 )
             elif p[2].type == "STRING" and p[4].type != "stringconst":
-                print(
+                print_compilation_error(
                     "COMPILATION ERROR at line "
                     + str(p.lineno(1))
                     + " : "
                     + "Expression and specified type do not match"
                 )
-                sys.exit()
+
             elif p[2].type == "BOOL" and p[4].type != "boolconst":
-                print(
+                print_compilation_error(
                     "COMPILATION ERROR at line "
                     + str(p.lineno(1))
                     + " : "
                     + "Expression and specified type do not match"
                 )
-                sys.exit()
+
             elif p[2].type.startswith("ARRAY"):
-                print(
+                print_compilation_error(
                     "COMPILATION ERROR at line "
                     + str(p.lineno(1))
                     + " : "
                     + "Expression and specified type do not match"
                 )
-                sys.exit()
 
         if not p[2].type.startswith("ARRAY"):
             SYMBOL_TABLE[_current_scope][lexeme] = {}
@@ -827,13 +828,12 @@ def p_TypeDef(p):
     # Here type must be a struct, as others are not supported
     temp = p[2].type.split()
     if temp[0] != "STRUCT":
-        print(
+        print_compilation_error(
             "COMPILATION ERROR at line "
             + str(p[2].line_num)
             + " : "
             + "Incorrect struct type specification"
         )
-        sys.exit()
 
     sym = "struct " + lexeme
     fields = []
@@ -883,26 +883,26 @@ def p_VarSpec(p):
         lexeme = p[1]
 
     if lexeme in SYMBOL_TABLE[_current_scope].keys():
-        print(
+        print_compilation_error(
             "COMPILATION ERROR at line "
             + str(p.lineno(1))
             + " : "
             + lexeme
             + " already declared "
         )
-        sys.exit()
+
     if len(p) == 5:
         if p[2].type != p[4].type:
             if p[4].type not in ["intconst", "floatconst", "stringconst", "boolconst"]:
 
                 ##TODO: correct 2.go
-                print(
+                print_compilation_error(
                     "COMPILATION ERROR at line "
                     + str(p.lineno(1))
                     + " : "
                     + "Expression and specified type do not match"
                 )
-                sys.exit()
+
             elif (
                 p[2].type
                 in [
@@ -920,47 +920,47 @@ def p_VarSpec(p):
                 and p[4].type != "intconst"
             ):
 
-                print(
+                print_compilation_error(
                     "COMPILATION ERROR at line "
                     + str(p.lineno(1))
                     + " : "
                     + "Expression and specified type do not match"
                 )
-                sys.exit()
+
             elif p[2].type in ["FLOAT32", "FLOAT64"] and not (
                 p[4].type == "intconst" or p[4].type == "floatconst"
             ):
-                print(
+                print_compilation_error(
                     "COMPILATION ERROR at line "
                     + str(p.lineno(1))
                     + " : "
                     + "Expression and specified type do not match"
                 )
-                sys.exit()
+
             elif p[2].type == "STRING" and p[4].type != "stringconst":
-                print(
+                print_compilation_error(
                     "COMPILATION ERROR at line "
                     + str(p.lineno(1))
                     + " : "
                     + "Expression and specified type do not match"
                 )
-                sys.exit()
+
             elif p[2].type == "BOOL" and p[4].type != "boolconst":
-                print(
+                print_compilation_error(
                     "COMPILATION ERROR at line "
                     + str(p.lineno(1))
                     + " : "
                     + "Expression and specified type do not match"
                 )
-                sys.exit()
+
             elif p[2].type.startswith("ARRAY"):
-                print(
+                print_compilation_error(
                     "COMPILATION ERROR at line "
                     + str(p.lineno(1))
                     + " : "
                     + "Expression and specified type do not match"
                 )
-                sys.exit()
+
         if not p[2].type.startswith("ARRAY"):
             SYMBOL_TABLE[_current_scope][lexeme] = {}
             SYMBOL_TABLE[_current_scope][lexeme]["type"] = p[2].type
@@ -1058,30 +1058,29 @@ def p_IncDecStmt(p):  # to check on which all things can this be applied
         p[1].val, p[1].line_num
     )  # this restricts the type of expressions on which it can be applied
     if found_scope == -1:
-        print(
+        print_compilation_error(
             "Compilation Error at line",
             str(p[1].line_num),
             ":Invalid operation on",
             p[1].val,
         )
-        sys.exit()
+
     else:
         if (p[1].func == 1) or ("struct" in p[1].type.split()):
-            print(
+            print_compilation_error(
                 "Compilation Error at line",
                 str(p[1].line_num),
                 ":Invalid operation on",
                 p[1].val,
             )
-            sys.exit()
+
         if p[1].level != 0:
-            print(
+            print_compilation_error(
                 "Compilation Error at line",
                 str(p[1].line_num),
                 ":Invalid operation on",
                 p[1].val,
             )
-            sys.exit()
 
 
 # def p_Assignment_1(p):
@@ -1093,21 +1092,22 @@ def p_Assignment_2(p):  # pending
     """Assignment : Expression assign_op Expression"""
 
     if p[1].type in ["intconst", "floatconst", "boolconst", "stringconst"]:
-        print(p[1].line_num, "COMPILATION ERROR : Left hand side cannot be constant")
-        sys.exit()
+        print_compilation_error(
+            p[1].line_num, "COMPILATION ERROR : Left hand side cannot be constant"
+        )
 
     else:
         if p[2] == ">>=" or p[2] == "<<=":
             if not (
                 isint(p[1].type) and isint(p[3].type)
             ):  # can be int 8, int 32 etc or intconst
-                print(
+                print_compilation_error(
                     p[1].line_num,
                     "COMPILATION ERROR : Incompatible data type with "
                     + p[2]
                     + " operator",
                 )
-                sys.exit()
+
             else:
                 p[0] = Node(
                     name=p[2],
@@ -1123,13 +1123,13 @@ def p_Assignment_2(p):  # pending
                 equal(p[1].type, p[3].type) != ""
             ):  # should be exactly equal or atleast one is a constant
                 if notcomparable(p[1].type):
-                    print(
+                    print_compilation_error(
                         p[1].line_num,
                         "COMPILATION ERROR : Incomputable data type with "
                         + p[2]
                         + " operator",
                     )
-                    sys.exit()
+
                 else:
                     p[0] = Node(
                         name=p[2],
@@ -1140,24 +1140,23 @@ def p_Assignment_2(p):  # pending
                     )
                     p[0].ast = add_edges(p)
             else:
-                print(
+                print_compilation_error(
                     p[1].line_num,
                     "COMPILATION ERROR : Incompatible data type with "
                     + p[2]
                     + " operator",
                 )
-                sys.exit()
 
         elif p[2] == "/=":
             if equal(p[1].type, p[3].type) != "":
                 if notcomparable(p[1].type):
-                    print(
+                    print_compilation_error(
                         p[1].line_num,
                         "COMPILATION ERROR : Incomputable data type with "
                         + p[2]
                         + " operator",
                     )
-                    sys.exit()
+
                 else:
                     p[0] = Node(
                         name=p[2],
@@ -1168,25 +1167,24 @@ def p_Assignment_2(p):  # pending
                     )
                 p[0].ast = add_edges(p)
             else:
-                print(
+                print_compilation_error(
                     p[1].line_num,
                     "COMPILATION ERROR : Incompatible data type with "
                     + p[2]
                     + " operator",
                 )
-                sys.exit()
 
         elif p[2] == "%=":
             if not (
                 isint(p[1].type) and isint(p[3].type)
             ):  # can be int 8, int 32 etc or intconst
-                print(
+                print_compilation_error(
                     p[1].line_num,
                     "COMPILATION ERROR : Incompatible data type with "
                     + p[2]
                     + " operator",
                 )
-                sys.exit()
+
             else:
                 if equal(p[1].type, p[3].type) != "":
                     p[0] = Node(
@@ -1198,25 +1196,24 @@ def p_Assignment_2(p):  # pending
                     )
                     p[0].ast = add_edges(p)
                 else:
-                    print(
+                    print_compilation_error(
                         p[1].line_num,
                         "COMPILATION ERROR : Incompatible data type with "
                         + p[2]
                         + " operator",
                     )
-                    sys.exit()
 
         elif p[2] == "&=" or p[2] == "|=" or p[2] == "^=":
             if not (
                 isint(p[1].type) and isint(p[3].type)
             ):  # can be int 8, int 32 etc or intconst
-                print(
+                print_compilation_error(
                     p[1].line_num,
                     "COMPILATION ERROR : Incompatible data type with "
                     + p[2]
                     + " operator",
                 )
-                sys.exit()
+
             else:
                 if equal(p[1].type, p[3].type) != "":
                     p[0] = Node(
@@ -1228,13 +1225,12 @@ def p_Assignment_2(p):  # pending
                     )
                     p[0].ast = add_edges(p)
                 else:
-                    print(
+                    print_compilation_error(
                         p[1].line_num,
                         "COMPILATION ERROR : Incompatible data type with "
                         + p[2]
                         + " operator",
                     )
-                    sys.exit()
 
         elif p[2] == "=":
             if p[1].type == p[3].type:
@@ -1297,11 +1293,10 @@ def p_Assignment_2(p):  # pending
                 p[0].ast = add_edges(p)
 
             else:
-                print(
+                print_compilation_error(
                     p[1].line_num,
                     "COMPILATION ERROR : Incompatible data type with assignment",
                 )
-                sys.exit()
 
 
 ### COVER ALL HERE
@@ -1360,12 +1355,11 @@ def p_PrimaryExpr_2(p):
 
     array_type = p[1].type.split()
     if len(array_type) <= 2:
-        print(
+        print_compilation_error(
             "COMPILATION ERROR at line ",
             str(p[1].line_num),
             ", incorrect number of dimensions specified for " + p[1].val,
         )
-        sys.exit()
 
     new_type = ""
     i = 2
@@ -1385,20 +1379,18 @@ def p_PrimaryExpr_2(p):
     p[0].level = p[1].level - 1
     p[0].ast = add_edges(p)
     if p[0].level == -1:
-        print(
+        print_compilation_error(
             "COMPILATION ERROR at line ",
             str(p[1].line_num),
             ", incorrect number of dimensions specified for " + p[1].val,
         )
-        sys.exit()
 
     if not isint(p[2].type):
-        print(
+        print_compilation_error(
             "Compilation Error: Array index at line ",
             p[3].line_num,
             " is not of compatible type",
         )
-        sys.exit()
 
 
 def p_PrimaryExpr_3(p):  # DONE
@@ -1429,20 +1421,18 @@ def p_PrimaryExpr_8(p):  # same doubts as array
     # new things might have to be added , append etc.
     p[0].ast = add_edges(p)
     if p[0].level == -1:
-        print(
+        print_compilation_error(
             "COMPILATION ERROR at line ",
             str(p[1].line_num),
             ", incorrect number of dimensions specified for " + p[1].val,
         )
-        sys.exit()
 
     if not isint(p[2].type):  # change this to handle 2:3 , :4 etc.
-        print(
+        print_compilation_error(
             "Compilation Error: Slice index at line ",
             p[3].line_num,
             " is not of compatible type",
         )
-        sys.exit()
 
 
 def p_PrimaryExpr_4(p):  # DONE
@@ -1539,21 +1529,20 @@ def p_PrimaryExpr_6(p):  # to check this with antreev
             p[1].val not in SYMBOL_TABLE[0].keys()
             or "func" not in SYMBOL_TABLE[0][p[1].val].keys()
         ):
-            print(
+            print_compilation_error(
                 "COMPILATION ERROR at line "
                 + str(p[1].line_num)
                 + ": no function with name "
                 + p[1].val
                 + " declared"
             )
-            sys.exit()
+
         elif len(SYMBOL_TABLE[0][p[1].val]["argumentList"]) != 0:
-            print(
+            print_compilation_error(
                 "Syntax Error at line",
                 p[1].line_num,
                 "Incorrect number of arguments for function call",
             )
-            sys.exit()
 
     if len(p) == 5:  # check with antreev
         p[0] = Node(
@@ -1568,27 +1557,27 @@ def p_PrimaryExpr_6(p):  # to check this with antreev
             p[1].val not in SYMBOL_TABLE[0].keys()
             or "func" not in SYMBOL_TABLE[0][p[1].val].keys()
         ):
-            print(
+            print_compilation_error(
                 "COMPILATION ERROR at line :"
                 + str(p[1].line_num)
                 + ": no function with name "
                 + p[1].val
                 + " declared"
             )
-            sys.exit()
+
         elif len(SYMBOL_TABLE[0][p[1].val]["argumentList"]) != len(p[3].children):
-            print(
+            print_compilation_error(
                 "Syntax Error at line "
                 + str(p[1].line_num)
                 + " Incorrect number of arguments for function call"
             )
-            sys.exit()
+
         else:
             i = 0
 
             for arguments in SYMBOL_TABLE[0][p[1].val]["argumentList"]:
                 if equal(arguments, p[3].children[i].type) == "":
-                    print(
+                    print_compilation_error(
                         "COMPILATION ERROR at line "
                         + str(p[1].line_num)
                         + ": Type mismatch in argument "
@@ -1613,7 +1602,7 @@ def p_PrimaryExpr_7(p):
     # if not p[1].name.startswith("Period"):  #  a.x
     #     struct_scope = find_scope(p[1].val, p[1].line_num)
     #     if struct_scope == -1 or p[1].val not in SYMBOL_TABLE[struct_scope].keys():
-    #         print(
+    #         print_compilation_error(
     #             "COMPILATION ERROR at line "
     #             + str(p[1].line_num)
     #             + " : "
@@ -1631,25 +1620,23 @@ def p_PrimaryExpr_7(p):
     p[0].ast = add_edges(p)
     struct_name = p[1].type
     if not struct_name.startswith("struct"):
-        print(
+        print_compilation_error(
             "COMPILATION ERROR at line "
             + str(p[1].line_num)
             + ", "
             + p[1].val
             + " is not a struct"
         )
-        sys.exit()
 
     found_scope = find_scope(struct_name, p[1].line_num)
 
     if found_scope == -1:
-        print(
+        print_compilation_error(
             "COMPILATION ERROR at line "
             + str(p[1].line_num)
             + ", No structure with name "
             + struct_name
         )
-        sys.exit()
 
     flag = 0
 
@@ -1670,14 +1657,13 @@ def p_PrimaryExpr_7(p):
             else:
                 p[0].type = curr_list[1]
     if flag == 0:
-        print(
+        print_compilation_error(
             "COMPILATION ERROR at line "
             + str(p[1].line_num)
             + " : field "
             + " not declared in "
             + struct_name
         )
-        sys.exit()
 
 
 def p_Operand_1(p):  # DONE
@@ -1904,13 +1890,13 @@ def p_Expression(p):
                 (p[1].type == "BOOL" or p[1].type == "boolconst")
                 and (p[3].type == "BOOL" or p[3].type == "boolconst")
             ):
-                print(
+                print_compilation_error(
                     p[1].line_num,
                     "COMPILATION ERROR : Incompatible data type with "
                     + p[2]
                     + " operator",
                 )
-                sys.exit()
+
             else:
                 p[0] = Node(
                     name="OR",
@@ -1926,13 +1912,13 @@ def p_Expression(p):
                 (p[1].type == "BOOL" or p[1].type == "boolconst")
                 and (p[3].type == "BOOL" or p[3].type == "boolconst")
             ):
-                print(
+                print_compilation_error(
                     p[1].line_num,
                     "COMPILATION ERROR : Incompatible data type with "
                     + p[2]
                     + " operator",
                 )
-                sys.exit()
+
             else:
                 p[0] = Node(
                     name="AND",
@@ -1947,13 +1933,13 @@ def p_Expression(p):
             if not (
                 isint(p[1].type) and isint(p[3].type)
             ):  # can be int 8, int 32 etc or intconst
-                print(
+                print_compilation_error(
                     p[1].line_num,
                     "COMPILATION ERROR : Incompatible data type with "
                     + p[2]
                     + " operator",
                 )
-                sys.exit()
+
             else:
                 if p[1].type == p[3].type:
                     p[0] = Node(
@@ -1983,13 +1969,12 @@ def p_Expression(p):
                     )
                     p[0].ast = add_edges(p)
                 else:
-                    print(
+                    print_compilation_error(
                         p[1].line_num,
                         "COMPILATION ERROR : Incompatible data type with "
                         + p[2]
                         + " operator",
                     )
-                    sys.exit()
 
         if p[2] == "==" or p[2] == "!=":
             if (
@@ -2004,13 +1989,12 @@ def p_Expression(p):
                 )
                 p[0].ast = add_edges(p)
             else:
-                print(
+                print_compilation_error(
                     p[1].line_num,
                     "COMPILATION ERROR : Incompatible data type with "
                     + p[2]
                     + " operator",
                 )
-                sys.exit()
 
         if p[2] == "<=" or p[2] == ">=" or p[2] == "<" or p[2] == ">":
             if (
@@ -2018,13 +2002,13 @@ def p_Expression(p):
             ):  # should be exactly equal or atleast one is a constant
 
                 if notcomparable(p[1].type):
-                    print(
+                    print_compilation_error(
                         p[1].line_num,
                         "COMPILATION ERROR : Incomparable data type with "
                         + p[2]
                         + " operator",
                     )
-                    sys.exit()
+
                 else:
                     p[0] = Node(
                         name=p[2],
@@ -2035,25 +2019,24 @@ def p_Expression(p):
                     )
                     p[0].ast = add_edges(p)
             else:
-                print(
+                print_compilation_error(
                     p[1].line_num,
                     "COMPILATION ERROR : Incompatible data type with "
                     + p[2]
                     + " operator",
                 )
-                sys.exit()
 
         if p[2] == "<<" or p[2] == ">>":
             if not (
                 isint(p[1].type) and isint(p[3].type)
             ):  # can be int 8, int 32 etc or intconst
-                print(
+                print_compilation_error(
                     p[1].line_num,
                     "COMPILATION ERROR : Incompatible data type with "
                     + p[2]
                     + " operator",
                 )
-                sys.exit()
+
             else:
                 p[0] = Node(
                     name=p[2],
@@ -2070,13 +2053,13 @@ def p_Expression(p):
             ):  # should be exactly equal or atleast one is a constant
 
                 if notcomparable(p[1].type):
-                    print(
+                    print_compilation_error(
                         p[1].line_num,
                         "COMPILATION ERROR : Incomputable data type with "
                         + p[2]
                         + " operator",
                     )
-                    sys.exit()
+
                 else:
                     p[0] = Node(
                         name=p[2],
@@ -2087,13 +2070,12 @@ def p_Expression(p):
                     )
                     p[0].ast = add_edges(p)
             else:
-                print(
+                print_compilation_error(
                     p[1].line_num,
                     "COMPILATION ERROR : Incompatible data type with "
                     + p[2]
                     + " operator",
                 )
-                sys.exit()
 
         if p[2] == "/":
             if equal(p[1].type, p[3].type) != "":
@@ -2106,25 +2088,24 @@ def p_Expression(p):
                 )
                 p[0].ast = add_edges(p)
             else:
-                print(
+                print_compilation_error(
                     p[1].line_num,
                     "COMPILATION ERROR : Incompatible data type with "
                     + p[2]
                     + " operator",
                 )
-                sys.exit()
 
         if p[2] == "%":
             if not (
                 isint(p[1].type) and isint(p[3].type)
             ):  # can be int 8, int 32 etc or intconst
-                print(
+                print_compilation_error(
                     p[1].line_num,
                     "COMPILATION ERROR : Incompatible data type with "
                     + p[2]
                     + " operator",
                 )
-                sys.exit()
+
             else:
                 if equal(p[1].type, p[3].type) != "":
                     p[0] = Node(
@@ -2136,13 +2117,12 @@ def p_Expression(p):
                     )
                     p[0].ast = add_edges(p)
                 else:
-                    print(
+                    print_compilation_error(
                         p[1].line_num,
                         "COMPILATION ERROR : Incompatible data type with "
                         + p[2]
                         + " operator",
                     )
-                    sys.exit()
 
     if p[0].type == "intconst":
         p[0].val = 0
@@ -2171,23 +2151,21 @@ def p_UnaryExpr(p):  # type casting not handled as of yet
             )
             p[0].ast = add_edges(p)
             if p[2].type in ["intconst", "floatconst", "stringconst", "boolconst"]:
-                print(
+                print_compilation_error(
                     "COMPILATION ERROR at line "
                     + str(p[1].line_num)
                     + " cannot dereference variable of type "
                     + p[2].type
                 )
-                sys.exit()
 
         elif p[1].val == "*":
             if not p[2].type.endswith("*"):
-                print(
+                print_compilation_error(
                     "COMPILATION ERROR at line "
                     + str(p[1].line_num)
                     + " cannot dereference variable of type "
                     + p[2].type
                 )
-                sys.exit()
 
             p[0] = Node(
                 name="PointerVariable",
@@ -2236,14 +2214,13 @@ def p_ShortVarDecl(p):
 
     # TODO handle slice
     if lexeme in SYMBOL_TABLE[_current_scope].keys():
-        print(
+        print_compilation_error(
             "COMPILATION ERROR at line "
             + str(p.lineno(1))
             + " : "
             + lexeme
             + " already declared "
         )
-        sys.exit()
 
     if True:
         if p[3].type == "intconst":
@@ -2291,7 +2268,7 @@ def p_func_decl(p):
 
     # check if the function already exists else add to symbol table
     # if p[2].val in SYMBOL_TABLE[0].keys():
-    #     print(
+    #     print_compilation_error(
     #         "COMPILATION ERROR at line :"
     #         + str(p[2].line_num)
     #         + ": function : "
@@ -2339,14 +2316,13 @@ def p_FunctionName(p):
     _current_function_name = lexeme
 
     if lexeme in SYMBOL_TABLE[0].keys():
-        print(
+        print_compilation_error(
             "COMPILATION ERROR at line :"
             + str(p.lineno(1))
             + ": function : "
             + lexeme
             + " already declared"
         )
-        sys.exit()
 
     else:
         SYMBOL_TABLE[0][_current_function_name] = {}
@@ -2386,12 +2362,11 @@ def p_Signature(p):
     for child in p[0].children:
 
         if child.val in SYMBOL_TABLE[_current_scope].keys():
-            print(
+            print_compilation_error(
                 "COMPILATION ERROR at line :"
                 + str(child.line_num)
                 + " function argument already declared"
             )
-            sys.exit()
 
         SYMBOL_TABLE[_current_scope][child.val] = {}
         SYMBOL_TABLE[_current_scope][child.val]["type"] = child.type
@@ -2512,7 +2487,7 @@ def p_SwitchStmt(p):
         if p[4] is not None:
             for child in p[4].children:
                 if child.type != "default" and equal(p[2].type, child.type) == "":
-                    print(
+                    print_compilation_error(
                         "COMPILATION ERROR at line "
                         + str(child.line_num)
                         + ", Expression type: "
@@ -2520,7 +2495,7 @@ def p_SwitchStmt(p):
                         + "doesn't match with Case type:"
                         + child.type
                     )
-                    sys.exit()
+
     p[0].ast = add_edges(p)
 
 
@@ -2578,12 +2553,12 @@ def p_ExprSwitchCase(p):
         if check:
             p[0].type = p[2].children[0].type
         else:
-            print(
+            print_compilation_error(
                 "COMPILATION ERROR at line "
                 + str(p[0].line_num)
                 + " labels of switch case have different type "
             )
-            sys.exit()
+
     else:
         p[0] = Node(
             name="ExprSwitchDefault", val="", type="", children=[], line_num=p.lineno(1)
@@ -2648,18 +2623,20 @@ def p_ForClause(p):
 
 def p_error(p):
     if p:
-        print("Syntax error at token ", p.type, "  Line Number  ", p.lineno)
+        print_compilation_error(
+            "Syntax error at token ", p.type, "  Line Number  ", p.lineno
+        )
         # Just discard the token and tell the parser it's okay.
         parser.errok()
     else:
-        print("Syntax error at EOF")
-
-    sys.exit()
+        print_compilation_error("Syntax error at EOF")
 
 
 def dump_symbol_table():
     with open(SYMBOL_TABLE_DUMP_FILENAME, "w") as f:
-        f.write("Scope, Name, Val, Line Num, Type, Children, Array, Function, Level, Field List\n")
+        f.write(
+            "Scope, Name, Val, Line Num, Type, Children, Array, Function, Level, Field List\n"
+        )
 
     for i in range(_next_scope):
         if len(SYMBOL_TABLE[i]) > 0:
@@ -2724,12 +2701,14 @@ def main():
         print(f"> Dump of the AST has been saved as '{AST_FILENAME}'")
         print(f"> Dump of the AST has been plotted in '{AST_PLOT_FILENAME}'")
 
-        print(Format.success + "Semantic Analysis done successfully" + Format.end)
+        print_success(
+            Format.success + "Semantic Analysis done successfully" + Format.end
+        )
 
         return 0
 
     except Exception as e:
-        print(Format.fail + str(e) + Format.end)
+        print_failure(Format.fail + str(e) + Format.end)
 
         return -1
 

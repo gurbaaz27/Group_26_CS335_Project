@@ -9,6 +9,9 @@ __filename__ = "utils.py"
 __description__ = "Helper/Utility functions for compiler."
 
 
+import sys
+
+
 SYMBOL_TABLE_DUMP_FILENAME = "symtab.csv"
 AST_FILENAME = "ast.dot"
 AST_PLOT_FILENAME = "ast_plot.png"
@@ -20,6 +23,7 @@ class Format:
     """
     Collection of ANSI escape sequences to format strings
     """
+
     success = "\033[32m"
     fail = "\033[91m"
     end = "\033[0m"
@@ -67,3 +71,16 @@ def write_label(filename: str, a: str, b: str):
 def write_edge(filename: str, a: str, b: str):
     with open(filename, "a") as f:
         f.write("\n" + a + " -> " + b)
+
+
+def print_compilation_error(err: str):
+    print(Format.fail + err + Format.end)
+    sys.exit()
+
+
+def print_success(err: str):
+    print(Format.success + err + Format.end)
+
+
+def print_failure(err: str):
+    print(Format.fail + err + Format.end)
