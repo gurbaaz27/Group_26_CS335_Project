@@ -1,41 +1,63 @@
-#################
-## Milestone 3  : CS335A ##
-########################################
-## Submission Date : February 18, 2022 ##
-########################################
+###########################
+## Milestone 5 : CS335A ##
+######################################
+## Submission Date : April 10, 2022 ##
+######################################
 
 __author__ = "Group 26, CS335A"
 __filename__ = "parser.py"
 __description__ = "A parser for the source language that outputs the Parser Automaton in a graphical form."
 
+import os
 import sys
 import argparse
 from pprint import pprint
 import ply.yacc as yacc
 from lexer import tokens
-from utils import (
+from constants import (
+    IRCODE_FILENAME,
     SYMBOL_TABLE_DUMP_FILENAME,
     AST_FILENAME,
     AST_PLOT_FILENAME,
+)
+from classes import Node
+from utils import (
+    write_ircode,
     write_label,
     write_edge,
     ignore_lexer_literal,
     print_compilation_error,
     print_success,
     print_failure,
-    Node,
-    Format,
+    operate,
+    convertible,
+    isint,
+    notcomparable,
+    equal,
 )
 import pydot
 import copy
-import json
 
 ######################
 ## Global Variables ##
 ######################
 
+## file io related
+
+_symbol_table_dump_filename = ""
+_ast_filename = ""
+_ast_plot_filename = ""
+_ircode_filename = ""
+
+## compiler related
+
 SYMBOL_TABLE = []
 SYMBOL_TABLE.append({})
+
+_3ac_code = ""
+
+_global_sp = 0
+_current_size = {}
 
 _current_function_return_type = ""
 _current_function_name = ""
@@ -46,16 +68,39 @@ _next_scope = 1
 _parent = {}
 _parent[0] = 0
 
+_DSU_parent = {}
+_DSU_urank = {}
+
 _loop_depth = 0
 _switch_depth = 0
+_current_switch_place = ""
+_exit_label_switch = ""
+_return_label = ""
+_break_label = {}
+_continue_label = {}
 
 _current_number = 0
 
-size = {}
-size["int"] = 4
-size["char"] = 1
-size["float"] = 4
+_label_counter = 0
+_token_counter = 0
 
+_offset = {}
+_size = {
+    "INT8": 1,
+    "INT16": 2,
+    "INT32": 4,
+    "INT64": 8,
+    "INT": 8,
+    "UINT8": 1,
+    "UINT16": 2,
+    "UINT32": 4,
+    "UINT64": 8,
+    "UINT": 8,
+    "FLOAT32": 4,
+    "FLOAT64": 8,
+    "BOOL": 1,
+    "STRING": 100,
+}
 
 start_node = Node("START", val="", type="", children=[])
 
@@ -100,6 +145,47 @@ precedence = (
 )
 
 
+def DSU_create(i):
+    _DSU_parent[i] = i
+    _DSU_urank[i] = 1
+    return
+
+
+def DSU_find(i):
+    if _DSU_parent[i] != i:
+        _DSU_parent[i] = DSU_find(_DSU_parent[i])
+    return _DSU_parent[i]
+
+
+def DSU_merge(x, y):
+    xroot = DSU_find(x)
+    yroot = DSU_find(y)
+    if xroot == yroot:
+        return
+    if _DSU_urank[xroot] < _DSU_urank[yroot]:
+        _DSU_parent[xroot] = yroot
+    elif _DSU_urank[xroot] > _DSU_urank[yroot]:
+        _DSU_parent[yroot] = xroot
+    else:
+        _DSU_parent[yroot] = xroot
+        _DSU_urank[xroot] = _DSU_urank[xroot] + 1
+    return
+
+
+def get_token():
+    global _token_counter
+    _token_counter += 1
+    return "t" + str(_token_counter - 1)
+
+
+def generate_label():
+    global _label_counter
+    label = "LABEL " + str(_label_counter)
+    _label_counter = _label_counter + 1
+    DSU_create(label)
+    return label
+
+
 def add_edges(p, exclude=[]):
     global _current_number
     global child_num
@@ -113,7 +199,7 @@ def add_edges(p, exclude=[]):
         p_count = _current_number
         i = 1
 
-        write_label(AST_FILENAME, str(p_count), stripped_p_.replace('"', ""))
+        write_label(_ast_filename, str(p_count), stripped_p_.replace('"', ""))
 
         for child in range(1, length, 1):
             if i in exclude:
@@ -126,31 +212,31 @@ def add_edges(p, exclude=[]):
             if type(p[child]) is not Node:
                 if type(p[child]) is tuple:
                     if ignore_lexer_literal(p[child][0]) is False:
-                        write_edge(AST_FILENAME, str(p_count), str(p[child][1]))
+                        write_edge(_ast_filename, str(p_count), str(p[child][1]))
                 else:
                     if ignore_lexer_literal(p[child]) is False:
                         _current_number += 1
                         write_label(
-                            AST_FILENAME,
+                            _ast_filename,
                             str(_current_number),
                             str(p[child]).replace('"', ""),
                         )
                         p[child] = (p[child], _current_number)
-                        write_edge(AST_FILENAME, str(p_count), str(p[child][1]))
+                        write_edge(_ast_filename, str(p_count), str(p[child][1]))
             else:
                 if type(p[child].ast) is tuple:
                     if ignore_lexer_literal(p[child].ast[0]) is False:
-                        write_edge(AST_FILENAME, str(p_count), str(p[child].ast[1]))
+                        write_edge(_ast_filename, str(p_count), str(p[child].ast[1]))
                 else:
                     if ignore_lexer_literal(p[child].ast) is False:
                         _current_number += 1
                         write_label(
-                            AST_FILENAME,
+                            _ast_filename,
                             str(_current_number),
                             str(p[child].ast).replace('"', ""),
                         )
                         p[child].ast = (p[child].ast, _current_number)
-                        write_edge(AST_FILENAME, str(p_count), str(p[child].ast[1]))
+                        write_edge(_ast_filename, str(p_count), str(p[child].ast[1]))
 
         return stripped_p_, p_count
 
@@ -161,7 +247,7 @@ def add_edges(p, exclude=[]):
             return p[1]
 
 
-def find_if_ID_is_declared(id, lineno):
+def declared_indentifier(id, lineno):
     curscp = _current_scope
     while _parent[curscp] != curscp:
         if id in SYMBOL_TABLE[curscp].keys():
@@ -170,11 +256,10 @@ def find_if_ID_is_declared(id, lineno):
     if curscp == 0:
         if id in SYMBOL_TABLE[curscp].keys():
             return curscp
-    print_compilation_error(
-        lineno, "COMPILATION ERROR: unary_expression " + id + " not declared"
-    )
 
-    return -1
+    print_compilation_error(
+        str(lineno) + "COMPILATION ERROR: unary_expression " + str(id) + " not declared"
+    )
 
 
 def find_scope(id, lineno):
@@ -189,56 +274,12 @@ def find_scope(id, lineno):
     return -1
 
 
-def isint(s):
-    if s in [
-        "stringconst",
-        "boolconst",
-        "BOOL",
-        "STRING",
-        "floatconst",
-        "FLOAT32",
-        "FLOAT64",
-    ]:
-        return False
-    else:
-        return True
-
-
-def notcomparable(s):
-    if s in ["stringconst", "boolconst", "BOOL", "STRING"]:
-        return True
-    else:
-        return False
-
-
-def equal(s1, s2):
-    if s1 == s2:
-        return s1
-    else:
-        if not (
-            s1 in ["intconst", "floatconst", "stringconst", "boolconst"]
-            or s2 in ["intconst", "floatconst", "stringconst", "boolconst"]
-        ):
-            return ""
-
-        if s1 in ["intconst", "floatconst", "stringconst", "boolconst"]:
-            if isint(s2) and s1 == "intconst":
-                return s2
-            elif s2 in ["FLOAT32", "FLOAT64"] and s1 == "floatconst":
-                return s2
-            elif s2 == "BOOL" and s1 == "boolconst":
-                return s2
-            elif s2 == "STRING" and s1 == "stringconst":
-                return s2
-        else:
-            return equal(s2, s1)
-
-    return ""
-
-
 def p_start(p):
     """start : SourceFile"""
+    global _3ac_code
+
     p[0] = p[1]
+    _3ac_code = p[0].code
 
 
 def p_empty(p):
@@ -361,9 +402,9 @@ def p_ArrayLength(p):
     )
     if p[0].type != "intconst":
         print_compilation_error(
-            "Compilation Error: Array index at line ",
-            p.lineno(1),
-            " is not of compatible type",
+            "Compilation Error: Array index at line "
+            + str(p.lineno(1))
+            + " is not of compatible type",
         )
 
     p[0].ast = add_edges(p)
@@ -472,9 +513,11 @@ def p_LopenBrace(p):
     """LopenBrace : LEFT_BRACE"""
     global _current_scope
     global _next_scope
+    global _current_size
 
     _parent[_next_scope] = _current_scope
     _current_scope = _next_scope
+    _current_size[_current_scope] = 0
     SYMBOL_TABLE.append({})
     _next_scope = _next_scope + 1
 
@@ -489,6 +532,10 @@ def p_Block(p):
 
     p[0] = Node(name="Block", val="", line_num=p.lineno(1), type="", children=[])
     p[0].ast = add_edges(p)
+
+    if type(p[2]) is Node:
+        if p[2].name == "StatementList":
+            p[0].code = p[2].code
 
 
 def p_StatementList(p):
@@ -510,9 +557,10 @@ def p_StatementList(p):
                 p[0].children = p[3].children
 
             p[0].children.append(p[1])
-
+            p[0].code = p[1].code + p[3].code
         else:
             p[0].ast = add_edges(p, [2, 3])
+            p[0].code = p[1].code
 
 
 ###############
@@ -530,6 +578,7 @@ def p_Statement(p):
     | ForStmt"""
     p[0] = Node(name="Statement", val="", type="", children=[], line_num=p[1].line_num)
     p[0].ast = add_edges(p)
+    p[0].code = p[1].code
 
 
 ## RETURN STATEMENT
@@ -556,7 +605,7 @@ def p_ReturnStmt(p):
                 "COMPLIATION ERROR at line "
                 + str(p.lineno(1))
                 + ": function return type is not "
-                + p[2].type
+                + str(p[2].type)
             )
 
         p[0] = Node(
@@ -571,6 +620,8 @@ def p_BreakStmt(p):
     | BREAK"""
     global _loop_depth
     global _switch_depth
+    global _break_label
+
     p[0] = Node(name="BreakStmt", val="", type="", line_num=p.lineno(1), children=[])
     p[0].ast = add_edges(p)
     if p[2].type != "intconst":
@@ -581,22 +632,36 @@ def p_BreakStmt(p):
         )
 
     if _loop_depth == 0 or _switch_depth == 0:
-        print_compilation_error(p[0].line_num, ": break not inside loop")
+        print_compilation_error(str(p[0].line_num) + " : break not inside loop")
+
+    if len(p) == 3:
+        if p[2].place > _loop_depth:
+            print_compilation_error(
+                str(p[0].line_num) + " : breaking index more than number of loop"
+            )
+
+        p[0].code = [["goto", _break_label[_loop_depth + 1 - int(p[2].place)]]]
+    else:
+        p[0].code = [["goto", _break_label[_loop_depth]]]
 
 
 ## CONTINUE STATEMENT
 def p_ContinueStmt(p):
     """ContinueStmt : CONTINUE"""
     global _loop_depth
+    global _continue_label
+
     p[0] = Node(name="ContinueStmt", val="", type="", line_num=p.lineno(1), children=[])
     p[0].ast = add_edges(p)
 
     if _loop_depth == 0:
-        print_compilation_error(p[0].line_num, ": continue not inside loop")
+        print_compilation_error(str(p[0].line_num) + " : continue not inside loop")
+
+    p[0].code = [["goto", _continue_label[_loop_depth]]]
 
 
 ## DECLARATION
-def p_Declaration(p):  # pending
+def p_Declaration(p):
     """Declaration : ConstDecl
     | TypeDecl
     | VarDecl"""
@@ -604,18 +669,20 @@ def p_Declaration(p):  # pending
         name="Declaration", val="", type="", line_num=p[1].line_num, children=[]
     )
     p[0].ast = add_edges(p)
+    p[0].code = p[1].code
 
 
-def p_TopLevelDecl(p):  # pending
+def p_TopLevelDecl(p):
     """TopLevelDecl : Declaration
     | FunctionDecl"""
     p[0] = Node(
         name="TopLevelDecl", val="", type="", line_num=p[1].line_num, children=[]
     )
     p[0].ast = add_edges(p)
+    p[0].code = p[1].code
 
 
-def p_TopLevelDeclList_1(p):  # pending
+def p_TopLevelDeclList_1(p):
     """TopLevelDeclList : TopLevelDecl EOS TopLevelDeclList
     | TopLevelDecl"""
     p[0] = Node(
@@ -623,29 +690,39 @@ def p_TopLevelDeclList_1(p):  # pending
     )
     p[0].ast = add_edges(p)
 
+    if len(p) == 2:
+        p[0].code = p[1].code
+    else:
+        p[0].code = p[1].code + p[3].code
 
-def p_TopLevelDeclList_2(p):  # pending
+
+def p_TopLevelDeclList_2(p):
     """TopLevelDeclList : empty"""
     p[0] = Node(name="TopLevelDeclList", val="", type="", children=[])
     p[0].ast = add_edges(p)
 
 
-def p_SourceFile(p):  # pending
+def p_SourceFile(p):
     """SourceFile : TopLevelDeclList"""
     p[0] = Node(name="SourceFile", val="", type="", line_num=p[1].line_num, children=[])
     p[0].ast = add_edges(p)
+    p[0].code = p[1].code
 
 
 ## 1. ConstDecl
-def p_ConstDecl(p):  # pending
+def p_ConstDecl(p):
     """ConstDecl : CONST ConstSpec"""
     p[0] = Node(name="ConstDecl", val="", type="", line_num=p.lineno(1), children=[])
     p[0].ast = add_edges(p)
+    p[0].code = p[2].code
 
 
 def p_ConstSpec(p):
     """ConstSpec : IDENTIFIER Type ASSIGN Expression
     | IDENTIFIER ASSIGN Expression"""
+    global _global_sp
+    global _current_size
+
     lexeme = ""
     if p[1] is tuple:
         lexeme = p[1][0]
@@ -665,7 +742,6 @@ def p_ConstSpec(p):
 
             if p[4].type not in ["intconst", "floatconst", "stringconst", "boolconst"]:
 
-                ##TODO: correct 2.go
                 print_compilation_error(
                     "COMPILATION ERROR at line "
                     + str(p.lineno(1))
@@ -731,8 +807,48 @@ def p_ConstSpec(p):
 
         if not p[2].type.startswith("ARRAY"):
             SYMBOL_TABLE[_current_scope][lexeme] = {}
-            SYMBOL_TABLE[_current_scope][lexeme]["type"] = p[3].type
+            SYMBOL_TABLE[_current_scope][lexeme]["type"] = p[2].type
             SYMBOL_TABLE[_current_scope][lexeme]["const"] = 1
+            if p[2].type.endswith("*"):
+                SYMBOL_TABLE[_current_scope][lexeme]["size"] = 8
+                _current_size[_current_scope] += 8
+                _global_sp += 8
+            else:
+                SYMBOL_TABLE[_current_scope][lexeme]["size"] = _size[p[2].type]
+                _current_size[_current_scope] += _size[p[2].type]
+                _global_sp += _size[p[2].type]
+
+            p[0].code = p[4].code
+            if p[2].type.endswith("*") or p[2].type in [
+                "INT",
+                "INT8",
+                "INT16",
+                "INT32",
+                "INT64",
+                "UINT",
+                "UINT8",
+                "UINT16",
+                "UINT32",
+                "UINT64",
+                "BOOL",
+            ]:
+                p[0].code.append(["int_copy", lexeme, p[4].place])
+            elif p[2].type in ["FLOAT32", "FLOAT64"]:
+                p[0].code.append(["float_copy", lexeme, p[4].place])
+            elif p[2].type in ["STRING"]:
+                p[0].code.append(["string_copy", lexeme, p[4].place])
+            elif p[4].type == "intconst":
+                p[0].code.append(["int_copy_immediate", lexeme, p[4].place])
+            elif p[4].type == "floatconst":
+                p[0].code.append(["float_copy_immediate", lexeme, p[4].place])
+            elif p[4].type == "boolconst":
+                if p[4].place == "True":
+                    p[0].code.append(["load immediate", lexeme, "1"])
+                else:
+                    p[0].code.append(["load immediate", lexeme, "0"])
+            elif p[4].type == "stringconst":
+                p[0].code.append(["string_copy_immediate", lexeme, p[4].place])
+
         else:
             # Pass complete array string
             SYMBOL_TABLE[_current_scope][lexeme] = {}
@@ -740,14 +856,59 @@ def p_ConstSpec(p):
             i = 0
             temp = p[3].type.split()
             dim = []
+            Quant = 1
             while temp[i] == "ARRAY":
                 i = i + 1
                 dim.append(int(temp[i]))
+                Quant *= int(temp[i])
                 i = i + 1
+            typ = temp[i]
+            if typ == "struct":
+                typ = typ + " " + temp[i + 1]
+            if typ.endswith("*"):
+                SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * 8
+                _current_size[_current_scope] += Quant * 8
+                _global_sp += Quant * 8
+            else:
+                SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * _size[typ]
+                _current_size[_current_scope] += Quant * _size[typ]
+                _global_sp += Quant * _size[typ]
+
             SYMBOL_TABLE[_current_scope][lexeme]["array"] = dim
             SYMBOL_TABLE[_current_scope][lexeme]["const"] = 1
 
     elif len(p) == 4:
+        if not p[3].type.startswith("ARRAY"):
+            p[0].code = p[3].code
+            if p[3].type.endswith("*") or p[3].type in [
+                "INT",
+                "INT8",
+                "INT16",
+                "INT32",
+                "INT64",
+                "UINT",
+                "UINT8",
+                "UINT16",
+                "UINT32",
+                "UINT64",
+                "BOOL",
+            ]:
+                p[0].code.append(["int_copy", lexeme, p[3].place])
+            elif p[3].type in ["FLOAT32", "FLOAT64"]:
+                p[0].code.append(["float_copy", lexeme, p[3].place])
+            elif p[3].type in ["STRING"]:
+                p[0].code.append(["string_copy", lexeme, p[3].place])
+            elif p[3].type == "intconst":
+                p[0].code.append(["int_copy_immediate", lexeme, p[3].place])
+            elif p[3].type == "floatconst":
+                p[0].code.append(["float_copy_immediate", lexeme, p[3].place])
+            elif p[3].type == "boolconst":
+                if p[3].place == "True":
+                    p[0].code.append(["load immediate", lexeme, "1"])
+                else:
+                    p[0].code.append(["load immediate", lexeme, "0"])
+            elif p[3].type == "stringconst":
+                p[0].code.append(["string_copy_immediate", lexeme, p[3].place])
         if p[3].type == "intconst":
             p[3].type = "INT64"
         elif p[3].type == "floatconst":
@@ -761,57 +922,84 @@ def p_ConstSpec(p):
             SYMBOL_TABLE[_current_scope][lexeme] = {}
             SYMBOL_TABLE[_current_scope][lexeme]["type"] = p[3].type
             SYMBOL_TABLE[_current_scope][lexeme]["const"] = 1
+            if p[3].type.endswith("*"):
+                SYMBOL_TABLE[_current_scope][lexeme]["size"] = 8
+                _current_size[_current_scope] += 8
+                _global_sp += 8
+            else:
+                SYMBOL_TABLE[_current_scope][lexeme]["size"] = _size[p[3].type]
+                _current_size[_current_scope] += _size[p[3].type]
+                _global_sp += _size[p[3].type]
         else:
             SYMBOL_TABLE[_current_scope][lexeme] = {}
             SYMBOL_TABLE[_current_scope][lexeme]["type"] = p[3].type
             i = 0
             temp = p[3].type.split()
             dim = []
+            Quant = 1
             while temp[i] == "ARRAY":
                 i = i + 1
                 dim.append(int(temp[i]))
+                Quant *= int(temp[i])
                 i = i + 1
+            typ = temp[i]
+            if typ == "struct":
+                typ = typ + " " + temp[i + 1]
+            if typ.endswith("*"):
+                SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * 8
+                _current_size[_current_scope] += Quant * 8
+                _global_sp += Quant * 8
+            else:
+                SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * _size[typ]
+                _current_size[_current_scope] += Quant * _size[p[3].type]
+                _global_sp += Quant * _size[p[3].type]
+
             SYMBOL_TABLE[_current_scope][lexeme]["array"] = dim
             SYMBOL_TABLE[_current_scope][lexeme]["const"] = 1
 
-    else:
-        if not p[2].type.startswith("ARRAY"):
-            SYMBOL_TABLE[_current_scope][lexeme] = {}
-            SYMBOL_TABLE[_current_scope][lexeme]["type"] = p[3].type
-            SYMBOL_TABLE[_current_scope][lexeme]["const"] = 1
-        else:
-            # Pass complete array string
-            SYMBOL_TABLE[_current_scope][lexeme] = {}
-            SYMBOL_TABLE[_current_scope][lexeme]["type"] = p[2].type
-            i = 0
-            temp = p[3].type.split()
-            dim = []
-            while temp[i] == "ARRAY":
-                i = i + 1
-                dim.append(int(temp[i]))
-                i = i + 1
-            SYMBOL_TABLE[_current_scope][lexeme]["array"] = dim
-            SYMBOL_TABLE[_current_scope][lexeme]["const"] = 1
+    # else:
+    #     if not p[2].type.startswith("ARRAY"):
+    #         SYMBOL_TABLE[_current_scope][lexeme] = {}
+    #         SYMBOL_TABLE[_current_scope][lexeme]["type"] = p[2].type
+    #         SYMBOL_TABLE[_current_scope][lexeme]["const"] = 1
+    #         SYMBOL_TABLE[_current_scope][lexeme]["size"] =_size[p[2].type]
+    #         if(p[2].type.endswith("*")):
+    #             SYMBOL_TABLE[_current_scope][lexeme]["size"] = 8
+    #     else:
+    #         # Pass complete array string
+    #         SYMBOL_TABLE[_current_scope][lexeme] = {}
+    #         SYMBOL_TABLE[_current_scope][lexeme]["type"] = p[2].type
+    #         i = 0
+    #         temp = p[3].type.split()
+    #         dim = []
+    #         while temp[i] == "ARRAY":
+    #             i = i + 1
+    #             dim.append(int(temp[i]))
+    #             i = i + 1
+    #         SYMBOL_TABLE[_current_scope][lexeme]["array"] = dim
+    #         SYMBOL_TABLE[_current_scope][lexeme]["const"] = 1
 
     p[0] = Node(name="ConstSpec", val="", type="", line_num=p.lineno(1), children=[])
     p[0].ast = add_edges(p)
 
 
 ## 2. Typedecl
-def p_TypeDecl(p):  # pending
+def p_TypeDecl(p):
     """TypeDecl : TYPE TypeSpec"""
     p[0] = Node(name="TypeDecl", val="", type="", line_num=p.lineno(1), children=[])
     p[0].ast = add_edges(p)
+    p[0].code = p[2].code
 
 
-def p_TypeSpec(p):  # pending
+def p_TypeSpec(p):
     """TypeSpec : AliasDecl
     | TypeDef"""
     p[0] = Node(name="TypeSpec", val="", type="", line_num=p[1].line_num, children=[])
     p[0].ast = add_edges(p)
+    p[0].code = p[1].code
 
 
-def p_AliasDecl(p):  # pending
+def p_AliasDecl(p):
     """AliasDecl : IDENTIFIER ASSIGN Type"""
     p[0] = Node(name="AliasDecl", val="", type="", line_num=p.lineno(1), children=[])
     p[0].ast = add_edges(p)
@@ -837,38 +1025,62 @@ def p_TypeDef(p):
 
     sym = "struct " + lexeme
     fields = []
+    names = []
     i = 2
-
+    CurrSize = 0
+    _offset[sym] = {}
     while i < len(temp):
+        if temp[i] in names:
+            print_compilation_error(
+                "COMPILATION ERROR at line "
+                + str(p[2].line_num)
+                + " : "
+                + "Name "
+                + temp[i]
+                + " Already declared"
+            )
         curr = []
         curr.append(temp[i])
+        names.append(temp[i])
+        _offset[sym][temp[i]] = CurrSize
         i = i + 1
         typ = ""
+        Quant = 1
         while temp[i] == "ARRAY":
             typ = typ + " ARRAY"
             i = i + 1
             # dim.append(int(temp[i]))
             typ = typ + " " + temp[i]
+            Quant *= int(temp[i])
             i = i + 1
+        isStruct = ""
         if temp[i] == "struct":
             typ = typ + " struct"
             i = i + 1
+            isStruct = "struct "
+        if temp[i].endswith("*"):
+            CurrSize += Quant * 8
+        else:
+            CurrSize += Quant * _size[isStruct + temp[i]]
         typ = typ + " " + temp[i]
         i = i + 1
         curr.append(typ.strip())
         fields.append(curr)
-
+    _size[sym] = CurrSize
     SYMBOL_TABLE[_current_scope][sym] = {}
     SYMBOL_TABLE[_current_scope][sym]["field_list"] = fields
+    SYMBOL_TABLE[_current_scope][sym]["size"] = CurrSize
+
     p[0] = Node(name="TypeDef", val="", type="", line_num=p.lineno(1), children=[])
     p[0].ast = add_edges(p)
 
 
 ## 3. VarDecl
-def p_VarDecl(p):  # pending
+def p_VarDecl(p):
     """VarDecl : VAR VarSpec"""
     p[0] = Node(name="VarDecl", val="", type="", line_num=p.lineno(1), children=[])
     p[0].ast = add_edges(p)
+    p[0].code = p[2].code
 
 
 ## VarSpec
@@ -876,6 +1088,9 @@ def p_VarSpec(p):
     """VarSpec : IDENTIFIER Type ASSIGN Expression
     | IDENTIFIER ASSIGN Expression
     | IDENTIFIER Type"""
+    global _global_sp
+    global _current_size
+
     lexeme = ""
     if p[1] is tuple:
         lexeme = p[1][0]
@@ -891,11 +1106,13 @@ def p_VarSpec(p):
             + " already declared "
         )
 
+    p[0] = Node(name="VarSpec", val="", type="", line_num=p.lineno(1), children=[])
+    p[0].ast = add_edges(p)
+
     if len(p) == 5:
         if p[2].type != p[4].type:
             if p[4].type not in ["intconst", "floatconst", "stringconst", "boolconst"]:
 
-                ##TODO: correct 2.go
                 print_compilation_error(
                     "COMPILATION ERROR at line "
                     + str(p.lineno(1))
@@ -964,6 +1181,45 @@ def p_VarSpec(p):
         if not p[2].type.startswith("ARRAY"):
             SYMBOL_TABLE[_current_scope][lexeme] = {}
             SYMBOL_TABLE[_current_scope][lexeme]["type"] = p[2].type
+            if p[2].type.endswith("*"):
+                SYMBOL_TABLE[_current_scope][lexeme]["size"] = 8
+                _current_size[_current_scope] += 8
+                _global_sp += 8
+            else:
+                SYMBOL_TABLE[_current_scope][lexeme]["size"] = _size[p[2].type]
+                _current_size[_current_scope] += _size[p[2].type]
+                _global_sp += _size[p[2].type]
+
+            p[0].code = p[4].code
+            if p[2].type.endswith("*") or p[2].type in [
+                "INT",
+                "INT8",
+                "INT16",
+                "INT32",
+                "INT64",
+                "UINT",
+                "UINT8",
+                "UINT16",
+                "UINT32",
+                "UINT64",
+                "BOOL",
+            ]:
+                p[0].code.append(["int_copy", lexeme, p[4].place])
+            elif p[2].type in ["FLOAT32", "FLOAT64"]:
+                p[0].code.append(["float_copy", lexeme, p[4].place])
+            elif p[2].type in ["STRING"]:
+                p[0].code.append(["string_copy", lexeme, p[4].place])
+            elif p[4].type == "intconst":
+                p[0].code.append(["int_copy_immediate", lexeme, p[4].place])
+            elif p[4].type == "floatconst":
+                p[0].code.append(["float_copy_immediate", lexeme, p[4].place])
+            elif p[4].type == "boolconst":
+                if p[4].place == "True":
+                    p[0].code.append(["load immediate", lexeme, "1"])
+                else:
+                    p[0].code.append(["load immediate", lexeme, "0"])
+            elif p[4].type == "stringconst":
+                p[0].code.append(["string_copy_immediate", lexeme, p[4].place])
 
         else:
             # Pass complete array string
@@ -972,13 +1228,58 @@ def p_VarSpec(p):
             i = 0
             temp = p[2].type.split()
             dim = []
+            Quant = 1
             while temp[i] == "ARRAY":
                 i = i + 1
                 dim.append(int(temp[i]))
+                Quant *= int(temp[i])
                 i = i + 1
+            typ = temp[i]
+            if typ == "struct":
+                typ = typ + " " + temp[i + 1]
+            if typ.endswith("*"):
+                SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * 8
+                _current_size[_current_scope] += 8
+                _global_sp += 8
+            else:
+                SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * _size[typ]
+                _current_size[_current_scope] += Quant * _size[typ]
+                _global_sp += Quant * _size[typ]
+
             SYMBOL_TABLE[_current_scope][lexeme]["array"] = dim
 
     elif len(p) == 4:
+        if not p[3].type.startswith("ARRAY"):
+            p[0].code = p[3].code
+            if p[3].type.endswith("*") or p[3].type in [
+                "INT",
+                "INT8",
+                "INT16",
+                "INT32",
+                "INT64",
+                "UINT",
+                "UINT8",
+                "UINT16",
+                "UINT32",
+                "UINT64",
+                "BOOL",
+            ]:
+                p[0].code.append(["int_copy", lexeme, p[3].place])
+            elif p[3].type in ["FLOAT32", "FLOAT64"]:
+                p[0].code.append(["float_copy", lexeme, p[3].place])
+            elif p[3].type in ["STRING"]:
+                p[0].code.append(["string_copy", lexeme, p[3].place])
+            elif p[3].type == "intconst":
+                p[0].code.append(["int_copy_immediate", lexeme, p[3].place])
+            elif p[3].type == "floatconst":
+                p[0].code.append(["float_copy_immediate", lexeme, p[3].place])
+            elif p[3].type == "boolconst":
+                if p[3].place == "True":
+                    p[0].code.append(["load immediate", lexeme, "1"])
+                else:
+                    p[0].code.append(["load immediate", lexeme, "0"])
+            elif p[3].type == "stringconst":
+                p[0].code.append(["string_copy_immediate", lexeme, p[3].place])
         if p[3].type == "intconst":
             p[3].type = "INT64"
         elif p[3].type == "floatconst":
@@ -991,22 +1292,52 @@ def p_VarSpec(p):
         if not p[3].type.startswith("ARRAY"):
             SYMBOL_TABLE[_current_scope][lexeme] = {}
             SYMBOL_TABLE[_current_scope][lexeme]["type"] = p[3].type
+            if p[3].type.endswith("*"):
+                SYMBOL_TABLE[_current_scope][lexeme]["size"] = 8
+                _current_size[_current_scope] += 8
+                _global_sp += 8
+            else:
+                SYMBOL_TABLE[_current_scope][lexeme]["size"] = _size[p[3].type]
+                _current_size[_current_scope] += _size[p[3].type]
+                _global_sp += _size[p[3].type]
         else:
             i = 0
             SYMBOL_TABLE[_current_scope][lexeme] = {}
             SYMBOL_TABLE[_current_scope][lexeme]["type"] = p[3].type
             temp = p[3].type.split()
             dim = []
+            Quant = 1
             while temp[i] == "ARRAY":
                 i = i + 1
                 dim.append(int(temp[i]))
+                Quant *= int(temp[i])
                 i = i + 1
+            typ = temp[i]
+            if typ == "struct":
+                typ = typ + " " + temp[i + 1]
+            if typ.endswith("*"):
+                SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * 8
+                _current_size[_current_scope] += Quant * 8
+                _global_sp += Quant * 8
+            else:
+                SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * _size[typ]
+                _current_size[_current_scope] += Quant * _size[typ]
+                _global_sp += Quant * _size[typ]
+
             SYMBOL_TABLE[_current_scope][lexeme]["array"] = dim
 
     else:
         if not p[2].type.startswith("ARRAY"):
             SYMBOL_TABLE[_current_scope][lexeme] = {}
             SYMBOL_TABLE[_current_scope][lexeme]["type"] = p[2].type
+            if p[2].type.endswith("*"):
+                SYMBOL_TABLE[_current_scope][lexeme]["size"] = 8
+                _current_size[_current_scope] += 8
+                _global_sp += 8
+            else:
+                SYMBOL_TABLE[_current_scope][lexeme]["size"] = _size[p[2].type]
+                _current_size[_current_scope] += _size[p[2].type]
+                _global_sp += _size[p[2].type]
         else:
             # Pass complete array string
             SYMBOL_TABLE[_current_scope][lexeme] = {}
@@ -1014,14 +1345,25 @@ def p_VarSpec(p):
             i = 0
             temp = p[2].type.split()
             dim = []
+            Quant = 1
             while temp[i] == "ARRAY":
                 i = i + 1
                 dim.append(int(temp[i]))
+                Quant *= int(temp[i])
                 i = i + 1
-            SYMBOL_TABLE[_current_scope][lexeme]["array"] = dim
+            typ = temp[i]
+            if typ == "struct":
+                typ = typ + " " + temp[i + 1]
+            if typ.endswith("*"):
+                SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * 8
+                _current_size[_current_scope] += Quant * 9
+                _global_sp += Quant * 8
+            else:
+                SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * _size[typ]
+                _current_size[_current_scope] += Quant * _size[typ]
+                _global_sp += Quant * _size[typ]
 
-    p[0] = Node(name="VarSpec", val="", type="", line_num=p.lineno(1), children=[])
-    p[0].ast = add_edges(p)
+            SYMBOL_TABLE[_current_scope][lexeme]["array"] = dim
 
 
 ## SIMPLE STATEMENT
@@ -1032,6 +1374,7 @@ def p_SimpleStmt(p):
     | ShortVarDecl"""
     p[0] = Node(name="SimpleStmt", val="", type="", line_num=p[1].line_num, children=[])
     p[0].ast = add_edges(p)
+    p[0].code = p[1].code
 
 
 def p_ExpressionStmt(p):
@@ -1040,12 +1383,19 @@ def p_ExpressionStmt(p):
         name="ExpressionStmt", val="", type="", line_num=p[1].line_num, children=[]
     )
     p[0].ast = add_edges(p)
+    p[0].code = p[1].code
 
 
 # 3.
 def p_IncDecStmt(p):  # to check on which all things can this be applied
     """IncDecStmt : Expression INCREMENT
     | Expression DECREMENT"""
+    lexeme = ""
+    if type(p[2]) is tuple:
+        lexeme = p[2][0]
+    else:
+        lexeme = p[2]
+
     p[0] = Node(
         name="IncrementOrDecrementExpression",
         val=p[1].val,
@@ -1059,28 +1409,42 @@ def p_IncDecStmt(p):  # to check on which all things can this be applied
     )  # this restricts the type of expressions on which it can be applied
     if found_scope == -1:
         print_compilation_error(
-            "Compilation Error at line",
-            str(p[1].line_num),
-            ":Invalid operation on",
-            p[1].val,
+            "Compilation Error at line" 
+            + str(p[1].line_num),
+            + ": Invalid operation on",
+            + str(p[1].val),
         )
-
     else:
         if (p[1].func == 1) or ("struct" in p[1].type.split()):
             print_compilation_error(
-                "Compilation Error at line",
-                str(p[1].line_num),
-                ":Invalid operation on",
-                p[1].val,
+                "Compilation Error at line"
+                + str(p[1].line_num)
+                + ": Invalid operation on"
+                + str(p[1].val)
             )
 
-        if p[1].level != 0:
+        elif p[1].level != 0:
             print_compilation_error(
-                "Compilation Error at line",
-                str(p[1].line_num),
-                ":Invalid operation on",
-                p[1].val,
+                "Compilation Error at line"
+                + str(p[1].line_num)
+                + ": Invalid operation on"
+                + str(p[1].val)
             )
+
+        else:
+            if isint(p[1].type) and p[1].type != "intconst":
+                p[0].code = p[1].code
+                if lexeme == "++":
+                    p[0].code.append(["int immediate +", p[0].place, p[1].place, "1"])
+                else:
+                    p[0].code.append(["int immediate +", p[0].place, p[1].place, "-1"])
+            else:
+                print_compilation_error(
+                    "Compilation Error at line"
+                    + str(p[1].line_num)
+                    + ":Invalid operation on"
+                    + str(p[1].val)
+                )
 
 
 # def p_Assignment_1(p):
@@ -1088,12 +1452,12 @@ def p_IncDecStmt(p):  # to check on which all things can this be applied
 #     pass
 
 
-def p_Assignment_2(p):  # pending
+def p_Assignment_2(p):
     """Assignment : Expression assign_op Expression"""
 
     if p[1].type in ["intconst", "floatconst", "boolconst", "stringconst"]:
         print_compilation_error(
-            p[1].line_num, "COMPILATION ERROR : Left hand side cannot be constant"
+            str(p[1].line_num) + "COMPILATION ERROR : Left hand side cannot be constant"
         )
 
     else:
@@ -1102,9 +1466,9 @@ def p_Assignment_2(p):  # pending
                 isint(p[1].type) and isint(p[3].type)
             ):  # can be int 8, int 32 etc or intconst
                 print_compilation_error(
-                    p[1].line_num,
-                    "COMPILATION ERROR : Incompatible data type with "
-                    + p[2]
+                    str(p[1].line_num)
+                    + " COMPILATION ERROR : Incompatible data type with "
+                    + str(p[2])
                     + " operator",
                 )
 
@@ -1116,17 +1480,41 @@ def p_Assignment_2(p):  # pending
                     type=p[1].type,
                     children=[],
                 )
-                p[0].ast = add_edges(p)
+                if p[1].type == "intconst":
+                    print_compilation_error(
+                        str(p[1].line_num)
+                        + "COMPILATION ERROR : Cannot apply "
+                        + str(p[2])
+                        + " with "
+                        + str(p[1].type)
+                    )
+
+                else:
+                    if p[3].type == "intconst":
+                        p[0].code = p[1].code
+                        p[0].place = get_token()
+                        p[0].code.append(
+                            [p[2] + "logical", p[0].place, p[1].place, p[3].place]
+                        )
+                        p[0].ast = add_edges(p)
+                    else:
+                        p[0].code = p[1].code + p[3].code
+                        p[0].place = get_token()
+                        p[0].code.append(
+                            [p[2] + "variable", p[0].place, p[1].place, p[3].place]
+                        )
+                        p[0].ast = add_edges(p)
 
         elif p[2] == "+=" or p[2] == "-=" or p[2] == "*=":
             if (
                 equal(p[1].type, p[3].type) != ""
             ):  # should be exactly equal or atleast one is a constant
+
                 if notcomparable(p[1].type):
                     print_compilation_error(
-                        p[1].line_num,
-                        "COMPILATION ERROR : Incomputable data type with "
-                        + p[2]
+                        str(p[1].line_num)
+                        + " COMPILATION ERROR : Incomputable data type with "
+                        + str(p[2])
                         + " operator",
                     )
 
@@ -1138,12 +1526,87 @@ def p_Assignment_2(p):  # pending
                         type=equal(p[1].type, p[3].type),
                         children=[],
                     )
-                    p[0].ast = add_edges(p)
+                    if p[1].type == "intconst" and p[3].type == "intconst":
+                        p[0].val = str(operate(int(p[1].val), p[2], int(p[3].val)))
+                        p[0].code = []
+                        p[0].place = p[0].val
+                        p[0].ast = add_edges(p)
+                    elif p[1].type == "floatconst" and p[3].type == "floatconst":
+                        p[0].val = str(operate(float(p[1].val), p[2], float(p[3].val)))
+                        p[0].code = []
+                        p[0].place = p[0].val
+                        p[0].ast = add_edges(p)
+                    else:
+                        if p[3].type == "intconst":
+                            p[0].code = p[1].code
+                            p[0].place = get_token()
+                            p[0].code.append(
+                                [
+                                    "immediate" + "int" + p[2],
+                                    p[0].place,
+                                    p[1].place,
+                                    p[3].place,
+                                ]
+                            )
+                            p[0].ast = add_edges(p)
+                        elif p[3].type == "floatconst":
+                            p[0].code = p[1].code
+                            p[0].place = get_token()
+                            p[0].code.append(
+                                [
+                                    "immediate" + "float" + p[2],
+                                    p[0].place,
+                                    p[1].place,
+                                    p[3].place,
+                                ]
+                            )
+                            p[0].ast = add_edges(p)
+                        elif p[1].type == "intconst":
+                            p[0].code = p[3].code
+                            p[0].place = get_token()
+                            p[0].code.append(
+                                [
+                                    "immediate" + "int" + p[2],
+                                    p[0].place,
+                                    p[3].place,
+                                    p[1].place,
+                                ]
+                            )
+                            p[0].ast = add_edges(p)
+
+                        elif p[1].type == "floatconst":
+                            p[0].code = p[3].code
+                            p[0].place = get_token()
+                            p[0].code.append(
+                                [
+                                    "immediate" + "float" + p[2],
+                                    p[0].place,
+                                    p[3].place,
+                                    p[1].place,
+                                ]
+                            )
+                            p[0].ast = add_edges(p)
+                        elif p[1].type in ["FLOAT32", "FLOAT64"]:
+                            p[0].code = p[1].code + p[3].code
+                            # p[0].code.append(p[3].code)
+                            p[0].place = get_token()
+                            p[0].code.append(
+                                ["float" + p[2], p[0].place, p[1].place, p[3].place]
+                            )
+                            p[0].ast = add_edges(p)
+                        else:
+                            p[0].code = p[1].code + p[3].code
+                            # p[0].code.append(p[3].code)
+                            p[0].place = get_token()
+                            p[0].code.append(
+                                ["int" + p[2], p[0].place, p[1].place, p[3].place]
+                            )
+                            p[0].ast = add_edges(p)
             else:
                 print_compilation_error(
-                    p[1].line_num,
-                    "COMPILATION ERROR : Incompatible data type with "
-                    + p[2]
+                    str(p[1].line_num)
+                    + " COMPILATION ERROR : Incompatible data type with "
+                    + str(p[2])
                     + " operator",
                 )
 
@@ -1151,9 +1614,9 @@ def p_Assignment_2(p):  # pending
             if equal(p[1].type, p[3].type) != "":
                 if notcomparable(p[1].type):
                     print_compilation_error(
-                        p[1].line_num,
-                        "COMPILATION ERROR : Incomputable data type with "
-                        + p[2]
+                        str(p[1].line_num)
+                        + " COMPILATION ERROR : Incomputable data type with "
+                        + str(p[2])
                         + " operator",
                     )
 
@@ -1165,12 +1628,84 @@ def p_Assignment_2(p):  # pending
                         type=equal(p[1].type, p[3].type),
                         children=[],
                     )
-                p[0].ast = add_edges(p)
+                    if p[1].type == "intconst" and p[3].type == "intconst":
+                        p[0].val = str((int(p[1].val) // int(p[3].val)))
+                        p[0].code = []
+                        p[0].place = p[0].val
+                        p[0].ast = add_edges(p)
+                    elif p[1].type == "floatconst" and p[3].type == "floatconst":
+                        p[0].val = str((float(p[1].val) / float(p[3].val)))
+                        p[0].code = []
+                        p[0].place = p[0].val
+                        p[0].ast = add_edges(p)
+                        p[0].ast = add_edges(p)
+                    else:
+                        if p[3].type == "intconst":
+                            p[0].code = p[1].code
+                            p[0].place = get_token()
+                            temp_token = get_token()
+                            p[0].code.append(
+                                ["load immediate ", temp_token, p[3].place]
+                            )
+                            p[0].code.append(
+                                ["int" + p[2], p[0].place, p[1].place, temp_token]
+                            )
+                            p[0].ast = add_edges(p)
+                        elif p[3].type == "floatconst":
+                            p[0].code = p[1].code
+                            p[0].place = get_token()
+                            temp_token = get_token()
+                            p[0].code.append(
+                                ["load immediate ", temp_token, p[3].place]
+                            )
+                            p[0].code.append(
+                                ["float" + p[2], p[0].place, p[1].place, temp_token]
+                            )
+                            p[0].ast = add_edges(p)
+                        elif p[1].type == "intconst":
+                            p[0].code = p[3].code
+                            p[0].place = get_token()
+                            temp_token = get_token()
+                            p[0].code.append(
+                                ["load immediate ", temp_token, p[1].place]
+                            )
+                            p[0].code.append(
+                                ["int" + p[2], p[0].place, temp_token, p[3].place]
+                            )
+                            p[0].ast = add_edges(p)
+                        elif p[1].type == "floatconst":
+                            p[0].code = p[3].code
+                            p[0].place = get_token()
+                            temp_token = get_token()
+                            p[0].code.append(
+                                ["load immediate ", temp_token, p[1].place]
+                            )
+                            p[0].code.append(
+                                ["int" + p[2], p[0].place, temp_token, p[3].place]
+                            )
+                            p[0].ast = add_edges(p)
+
+                        elif p[1].type in ["FLOAT32", "FLOAT64"]:
+                            p[0].code = p[1].code + p[3].code
+                            # p[0].code.append(p[3].code)
+                            p[0].place = get_token()
+                            p[0].code.append(
+                                ["float" + p[2], p[0].place, p[1].place, p[3].place]
+                            )
+                            p[0].ast = add_edges(p)
+                        else:
+                            p[0].code = p[1].code + p[3].code
+                            # p[0].code.append(p[3].code)
+                            p[0].place = get_token()
+                            p[0].code.append(
+                                ["int" + p[2], p[0].place, p[1].place, p[3].place]
+                            )
+                            p[0].ast = add_edges(p)
             else:
                 print_compilation_error(
-                    p[1].line_num,
-                    "COMPILATION ERROR : Incompatible data type with "
-                    + p[2]
+                    str(p[1].line_num)
+                    + " COMPILATION ERROR : Incompatible data type with "
+                    + str(p[2])
                     + " operator",
                 )
 
@@ -1179,9 +1714,9 @@ def p_Assignment_2(p):  # pending
                 isint(p[1].type) and isint(p[3].type)
             ):  # can be int 8, int 32 etc or intconst
                 print_compilation_error(
-                    p[1].line_num,
-                    "COMPILATION ERROR : Incompatible data type with "
-                    + p[2]
+                    str(p[1].line_num)
+                    + " COMPILATION ERROR : Incompatible data type with "
+                    + str(p[2])
                     + " operator",
                 )
 
@@ -1194,13 +1729,49 @@ def p_Assignment_2(p):  # pending
                         type=equal(p[1].type, p[3].type),
                         children=[],
                     )
-                    p[0].ast = add_edges(p)
+                    if p[1].type == "intconst" and p[3].type == "intconst":
+                        p[0].val = str((int(p[1].val) % int(p[3].val)))
+                        p[0].place = p[0].val
+                        p[0].code = []
+                        p[0].ast = add_edges(p)
+                    else:
+                        if p[1].type != "intconst" and p[3].type != "intconst":
+                            p[0].code = p[1].code + p[3].code
+                            # p[0].code.append(p[3].code)
+                            p[0].place = get_token()
+                            p[0].code.append(
+                                ["int" + p[2], p[0].place, p[1].place, p[3].place]
+                            )
+                            p[0].ast = add_edges(p)
+                        else:
+                            if p[1].type == "intconst":
+                                p[0].code = p[3].code
+                                p[0].place = get_token()
+                                temp_token = get_token()
+                                p[0].code.append(
+                                    ["load immediate ", temp_token, p[1].place]
+                                )
+                                p[0].code.append(
+                                    ["int" + p[2], p[0].place, temp_token, p[3].place]
+                                )
+                                p[0].ast = add_edges(p)
+                            else:
+                                p[0].code = p[1].code
+                                p[0].place = get_token()
+                                temp_token = get_token()
+                                p[0].code.append(
+                                    ["load immediate ", temp_token, p[3].place]
+                                )
+                                p[0].code.append(
+                                    ["int" + p[2], p[0].place, p[1].place, temp_token]
+                                )
+                                p[0].ast = add_edges(p)
                 else:
                     print_compilation_error(
-                        p[1].line_num,
-                        "COMPILATION ERROR : Incompatible data type with "
-                        + p[2]
-                        + " operator",
+                        str(p[1].line_num)
+                        + " COMPILATION ERROR : Incompatible data type with "
+                        + str(p[2])
+                        + " operator"
                     )
 
         elif p[2] == "&=" or p[2] == "|=" or p[2] == "^=":
@@ -1208,28 +1779,66 @@ def p_Assignment_2(p):  # pending
                 isint(p[1].type) and isint(p[3].type)
             ):  # can be int 8, int 32 etc or intconst
                 print_compilation_error(
-                    p[1].line_num,
-                    "COMPILATION ERROR : Incompatible data type with "
-                    + p[2]
-                    + " operator",
+                    str(p[1].line_num)
+                    + " COMPILATION ERROR : Incompatible data type with "
+                    + str(p[2])
+                    + " operator"
                 )
 
             else:
-                if equal(p[1].type, p[3].type) != "":
+                if p[1].type == p[3].type:
                     p[0] = Node(
                         name=p[2],
                         val="",
                         line_num=p[1].line_num,
-                        type=equal(p[1].type, p[3].type),
+                        type=p[1].type,
                         children=[],
+                    )
+
+                    if not (p[1].type == "intconst" and p[3].type == "intconst"):
+                        p[0].code = p[1].code + p[3].code
+                        # p[0].code.append(p[3].code)
+                        p[0].place = get_token()
+                        p[0].code.append([p[2], p[0].place, p[1].place, p[3].place])
+                    else:
+                        p[0].val = str(operate(int(p[1].val), p[2], int(p[3].val)))
+                        p[0].code = []
+                        p[0].place = p[0].val
+                        p[0].ast = add_edges(p)
+                elif p[1].type == "intconst":
+                    p[0] = Node(
+                        name=p[2],
+                        val="",
+                        line_num=p[1].line_num,
+                        type=p[3].type,
+                        children=[],
+                    )
+                    p[0].code = p[3].code
+                    p[0].place = get_token()
+                    p[0].code.append(
+                        ["immediate" + p[2], p[0].place, p[3].place, p[1].place]
+                    )
+                    p[0].ast = add_edges(p)
+                elif p[3].type == "intconst":
+                    p[0] = Node(
+                        name=p[2],
+                        val="",
+                        line_num=p[1].line_num,
+                        type=p[1].type,
+                        children=[],
+                    )
+                    p[0].code = p[1].code
+                    p[0].place = get_token()
+                    p[0].code.append(
+                        ["immediate" + p[2], p[0].place, p[1].place, p[3].place]
                     )
                     p[0].ast = add_edges(p)
                 else:
                     print_compilation_error(
-                        p[1].line_num,
-                        "COMPILATION ERROR : Incompatible data type with "
-                        + p[2]
-                        + " operator",
+                        str(p[1].line_num)
+                        + " COMPILATION ERROR : Incompatible data type with "
+                        + str(p[2])
+                        + " operator"
                     )
 
         elif p[2] == "=":
@@ -1243,6 +1852,37 @@ def p_Assignment_2(p):  # pending
                 )
                 p[0].ast = add_edges(p)
 
+                if (
+                    isint(p[1].type)
+                    or p[1].type in ["FLOAT32", "FLOAT64", "BOOL", "STRING"]
+                    or p[1].type.endswith("*")
+                ):
+                    if isint(p[1].type) or p[1].type == "BOOL":
+                        p[0].place = get_token()
+                        p[0].code = p[1].code + p[3].code
+                        p[0].code.append(["int_copy", p[0].place, p[3].place])
+                        p[0].ast = add_edges(p)
+                    elif p[1].type in ["FLOAT32", "FLOAT64"]:
+                        p[0].place = get_token()
+                        p[0].code = p[1].code + p[3].code
+                        p[0].code.append(["float_copy", p[0].place, p[3].place])
+                        p[0].ast = add_edges(p)
+                    elif p[1].type.endswith("*"):
+                        p[0].place = get_token()
+                        p[0].code = p[1].code + p[3].code
+                        p[0].code.append(["int_copy", p[0].place, p[3].place])
+                        p[0].ast = add_edges(p)
+                    else:
+                        p[0].place = get_token()
+                        p[0].code = p[1].code + p[3].code
+                        p[0].code.append(["string_copy", p[0].place, p[3].place])
+                        p[0].ast = add_edges(p)
+                else:
+                    print_compilation_error(
+                        str(p[1].line_num)
+                        + " COMPILATION ERROR : Incompatible data type with assignment"
+                    )
+
             elif p[1].type == "STRING" and p[3].type == "stringconst":
                 p[0] = Node(
                     name=p[2],
@@ -1251,6 +1891,9 @@ def p_Assignment_2(p):  # pending
                     type=p[1].type,
                     children=[],
                 )
+                p[0].place = get_token()
+                p[0].code = p[1].code 
+                p[0].code.append(["string_copy_immediate", p[0].place, p[3].place])
                 p[0].ast = add_edges(p)
 
             elif p[1].type == "BOOL" and p[3].type == "boolconst":
@@ -1261,11 +1904,16 @@ def p_Assignment_2(p):  # pending
                     type=p[1].type,
                     children=[],
                 )
+                p[0].place = get_token()
+                p[0].code = p[1].code 
+                if p[3].place == "True":
+                    p[0].code.append(["load immediate", p[0].place, "1"])
+                else:
+                    p[0].code.append(["load immediate", p[0].place, "0"])
                 p[0].ast = add_edges(p)
 
             elif p[1].type in ["FLOAT32", "FLOAT64"] and p[3].type in [
                 "floatconst",
-                "intconst",
             ]:
                 p[0] = Node(
                     name=p[2],
@@ -1274,15 +1922,13 @@ def p_Assignment_2(p):  # pending
                     type=p[1].type,
                     children=[],
                 )
+                p[0].place = get_token()
+                p[0].code = p[1].code 
+                p[0].code.append(["float_copy_immediate", p[0].place, p[3].place])
                 p[0].ast = add_edges(p)
-
-            elif p[1].type in [
-                "INT",
-                "INT8",
-                "INT16",
-                "INT32",
-                "INT64",
-            ]:  # and p[3].type in ["intconst"]:
+            elif p[1].type in ["INT", "INT8", "INT16", "INT32", "INT64",] and p[
+                3
+            ].type in ["intconst"]:
                 p[0] = Node(
                     name=p[2],
                     val="",
@@ -1290,12 +1936,15 @@ def p_Assignment_2(p):  # pending
                     type=p[1].type,
                     children=[],
                 )
+                p[0].place = get_token()
+                p[0].code = p[1].code 
+                p[0].code.append(["int_copy_immediate", p[0].place, p[3].place])
                 p[0].ast = add_edges(p)
 
             else:
                 print_compilation_error(
-                    p[1].line_num,
-                    "COMPILATION ERROR : Incompatible data type with assignment",
+                    str(p[1].line_num)
+                    + " COMPILATION ERROR : Incompatible data type with assignment"
                 )
 
 
@@ -1332,12 +1981,14 @@ def p_ExpressionList(p):
             children=[p[1]],
         )
         p[0].ast = add_edges(p)
+        p[0].code = p[1].code
     else:
         # check if name will always be equal to ArgumentExpressionList
         # heavy doubt
         p[0] = p[3]
         p[0].children.append(p[1])
         p[0].ast = add_edges(p, [2])
+        p[0].code = p[1].code + p[3].code
 
 
 ## Primary Expression
@@ -1350,6 +2001,7 @@ def p_PrimaryExpr_1(p):  # DONE
 
 
 # array accessing
+# array accessing
 def p_PrimaryExpr_2(p):
     """PrimaryExpr : PrimaryExpr Index"""
 
@@ -1358,7 +2010,8 @@ def p_PrimaryExpr_2(p):
         print_compilation_error(
             "COMPILATION ERROR at line ",
             str(p[1].line_num),
-            ", incorrect number of dimensions specified for " + p[1].val,
+            ", incorrect number of dimensions specified for " 
+            + p[1].val
         )
 
     new_type = ""
@@ -1378,31 +2031,52 @@ def p_PrimaryExpr_2(p):
     p[0].array.append(p[2].val)
     p[0].level = p[1].level - 1
     p[0].ast = add_edges(p)
+    p[0].dims = p[1].dims
+    p[0].code = p[1].code
+    add = 1
+    for i in range(len(p[0].dims) - p[0].level, len(p[0].dims)):
+        add *= p[0].dims[i]
+    new_type = new_type.split()
+    length = len(new_type)
+    type = ""
+    if length == 1:
+        type = new_type[0]
+    else:
+        if new_type[length - 2] == "struct":
+            type = "struct" + " " + new_type[length - 1]
+        else:
+            type = new_type[length - 1]
+    type_size = 0
+    if type.endswith("*"):
+        type_size = 8
+    else:
+        type_size = _size[type]
+
+    temp_label = get_token()
+    p[0].place = "*" + get_token()
+    add *= type_size
+    p[0].code.append(["int immediate *", temp_label, p[2].place, add])
+    p[0].code.append(["int  +", p[0].place, p[1].place, temp_label])
     if p[0].level == -1:
         print_compilation_error(
-            "COMPILATION ERROR at line ",
-            str(p[1].line_num),
-            ", incorrect number of dimensions specified for " + p[1].val,
+            "COMPILATION ERROR at line "
+            + str(p[1].line_num)
+            + ", incorrect number of dimensions specified for " 
+            + p[1].val
         )
 
     if not isint(p[2].type):
         print_compilation_error(
-            "Compilation Error: Array index at line ",
-            p[3].line_num,
-            " is not of compatible type",
+            "Compilation Error: Array index at line "
+            + str(p[3].line_num)
+            + " is not of compatible type"
         )
 
 
 def p_PrimaryExpr_3(p):  # DONE
     """Index : LEFT_SQUARE Expression RIGHT_SQUARE"""
-    p[0] = Node(
-        name="ArrayIndexing",
-        val=p[2].val,
-        line_num=p.lineno(1),
-        type=p[2].type,
-        children=p[2],
-    )
-    p[0].ast = add_edges(p)
+    p[0] = p[2]
+    p[0].ast = add_edges(p, [1, 3])
 
 
 # Slice accesing
@@ -1422,16 +2096,17 @@ def p_PrimaryExpr_8(p):  # same doubts as array
     p[0].ast = add_edges(p)
     if p[0].level == -1:
         print_compilation_error(
-            "COMPILATION ERROR at line ",
-            str(p[1].line_num),
-            ", incorrect number of dimensions specified for " + p[1].val,
+            "COMPILATION ERROR at line "
+            + str(p[1].line_num),
+            + ", incorrect number of dimensions specified for " 
+            + str(p[1].val)
         )
 
     if not isint(p[2].type):  # change this to handle 2:3 , :4 etc.
         print_compilation_error(
-            "Compilation Error: Slice index at line ",
-            p[3].line_num,
-            " is not of compatible type",
+            "Compilation Error: Slice index at line "
+            + str(p[3].line_num)
+            + " is not of compatible type"
         )
 
 
@@ -1513,6 +2188,7 @@ def p_PrimaryExpr_5(p):  # DONE
         p[0].ast = add_edges(p)
 
 
+## TODO
 def p_PrimaryExpr_6(p):  # to check this with antreev
     """PrimaryExpr :  PrimaryExpr LEFT_PARENTH RIGHT_PARENTH
     |  PrimaryExpr LEFT_PARENTH ExpressionList RIGHT_PARENTH"""
@@ -1539,9 +2215,9 @@ def p_PrimaryExpr_6(p):  # to check this with antreev
 
         elif len(SYMBOL_TABLE[0][p[1].val]["argumentList"]) != 0:
             print_compilation_error(
-                "Syntax Error at line",
-                p[1].line_num,
-                "Incorrect number of arguments for function call",
+                "Syntax Error at line"
+                + str(p[1].line_num)
+                + "Incorrect number of arguments for function call"
             )
 
     if len(p) == 5:  # check with antreev
@@ -1584,9 +2260,9 @@ def p_PrimaryExpr_6(p):  # to check this with antreev
                         + str(i + 1)
                         + " of function call, "
                         + "actual type : "
-                        + arguments
+                        + str(arguments)
                         + ", called with : "
-                        + p[3].children[i].type
+                        + str(p[3].children[i].type)
                     )
                     i += 1
 
@@ -1598,18 +2274,6 @@ def p_PrimaryExpr_7(p):
         lexeme = p[3][0]
     else:
         lexeme = p[3]
-
-    # if not p[1].name.startswith("Period"):  #  a.x
-    #     struct_scope = find_scope(p[1].val, p[1].line_num)
-    #     if struct_scope == -1 or p[1].val not in SYMBOL_TABLE[struct_scope].keys():
-    #         print_compilation_error(
-    #             "COMPILATION ERROR at line "
-    #             + str(p[1].line_num)
-    #             + " : "
-    #             + p[1].val
-    #             + " not declared"
-    #         )
-
     p[0] = Node(
         name="PeriodExpression",
         val=lexeme,
@@ -1618,13 +2282,15 @@ def p_PrimaryExpr_7(p):
         children=[],
     )
     p[0].ast = add_edges(p)
+    p[0].code = p[1].code
+    p[0].place = "*" + get_token()
     struct_name = p[1].type
     if not struct_name.startswith("struct"):
         print_compilation_error(
             "COMPILATION ERROR at line "
             + str(p[1].line_num)
             + ", "
-            + p[1].val
+            + str(p[1].val)
             + " is not a struct"
         )
 
@@ -1635,13 +2301,14 @@ def p_PrimaryExpr_7(p):
             "COMPILATION ERROR at line "
             + str(p[1].line_num)
             + ", No structure with name "
-            + struct_name
+            + str(struct_name)
         )
 
     flag = 0
-
+    off = -1
     for curr_list in SYMBOL_TABLE[found_scope][struct_name]["field_list"]:
         if curr_list[0] == lexeme:
+            off = _offset[struct_name][lexeme]
             flag = 1
             if curr_list[1].startswith("ARRAY"):  # to handle slices as well
                 i = 0
@@ -1653,6 +2320,7 @@ def p_PrimaryExpr_7(p):
                     dim.append(int(temp[i]))
                     i = i + 1
                 p[0].level = len(dim)
+                p[0].dims = dim
             # p[0].type = temp[i]
             else:
                 p[0].type = curr_list[1]
@@ -1662,7 +2330,68 @@ def p_PrimaryExpr_7(p):
             + str(p[1].line_num)
             + " : field "
             + " not declared in "
-            + struct_name
+            + str(struct_name)
+        )
+
+    else:
+        p[0].code.append(["int immediate + ", p[0].place, p[1].place, off])
+
+
+def p_PrimaryExpr_9(p):
+    """PrimaryExpr : Conversion"""
+    p[0] = p[1]
+    p[0].ast = add_edges(p)
+
+
+def p_Conv_type(p):
+    """Conv_type : UINT
+    | UINT8
+    | UINT16
+    | UINT32
+    | UINT64
+    | INT
+    | INT8
+    | INT16
+    | INT32
+    | INT64
+    | FLOAT32
+    | FLOAT64"""
+
+    if len(p) == 2:
+        p[0] = Node(
+            name="TypeName",
+            val="",
+            type=p[1].upper(),
+            line_num=p.lineno(1),
+            children=[],
+        )
+        p[0].ast = add_edges(p)
+    else:
+        p[0] = Node(
+            name="PointerType",
+            val="",
+            type=p[2].type + "*",
+            line_num=p.lineno(1),
+            children=[],
+        )
+        p[0].ast = add_edges(p)
+
+
+def p_Conversion(p):
+    """Conversion : Conv_type LEFT_PARENTH Expression RIGHT_PARENTH"""
+    p[0] = p[3]
+    p[0].type = p[1].type
+    p[0].place = get_token()
+    p[0].code.append([p[1].type + "to" + p[0].type, p[0].place, p[1].place])
+    p[0].ast = add_edges(p)
+
+    if not convertible(p[3].type, p[1].type):
+        print_compilation_error(
+            str(p[1].line_num)
+            + "COMPILATION ERROR : Cannot Type Cast"
+            + str(p[3].type)
+            + "into"
+            + str(p[1].type)
         )
 
 
@@ -1675,7 +2404,8 @@ def p_Operand_1(p):  # DONE
         lexeme = p[1]
 
     p[0] = Node(name="Operand", val=lexeme, line_num=p.lineno(1), type="", children=[])
-    temp = find_if_ID_is_declared(lexeme, p.lineno(1))
+    p[0].place = lexeme
+    temp = declared_indentifier(lexeme, p.lineno(1))
 
     if temp != -1:
         p[0].type = SYMBOL_TABLE[temp][lexeme]["type"]
@@ -1683,6 +2413,8 @@ def p_Operand_1(p):  # DONE
         # if ID is an array
         if "array" in SYMBOL_TABLE[temp][lexeme].keys():
             p[0].level = len(SYMBOL_TABLE[temp][lexeme]["array"])
+            p[0].dims = SYMBOL_TABLE[temp][lexeme]["array"]
+            # print_compilation_error(SYMBOL_TABLE[temp][lexeme]["array"])
 
         # if ID is func name
         if "func" in SYMBOL_TABLE[temp][lexeme]:
@@ -1723,11 +2455,12 @@ def p_BasicLit_1(p):  # DONE
 
     p[0] = Node(
         name="ConstantExpression",
-        val=0,
+        val=lexeme,
         line_num=p.lineno(1),
         type="intconst",
         children=[],
     )
+    p[0].place = p[0].val
     p[0].ast = add_edges(p)
 
 
@@ -1741,35 +2474,48 @@ def p_BasicLit_2(p):  # DONE
 
     p[0] = Node(
         name="ConstantExpression",
-        val=0,
+        val=lexeme,
         line_num=p.lineno(1),
         type="floatconst",
         children=[],
     )
+    p[0].place = p[0].val
     p[0].ast = add_edges(p)
 
 
 def p_BasicLit_3(p):  # DONE
     """BasicLit : STRINGCONST"""
+    lexeme = ""
+    if p[1] is tuple:
+        lexeme = p[1][0]
+    else:
+        lexeme = p[1]
     p[0] = Node(
         name="ConstantExpression",
-        val=0,
+        val=lexeme,
         line_num=p.lineno(1),
         type="stringconst",
         children=[],
     )
+    p[0].place = p[0].val
     p[0].ast = add_edges(p)
 
 
 def p_BasicLit_4(p):  # DONE
     """BasicLit : BOOLCONST"""
+    lexeme = ""
+    if p[1] is tuple:
+        lexeme = p[1][0]
+    else:
+        lexeme = p[1]
     p[0] = Node(
         name="ConstantExpression",
-        val=0,
+        val=lexeme,
         line_num=p.lineno(1),
         type="boolconst",
         children=[],
     )
+    p[0].place = p[0].val
     p[0].ast = add_edges(p)
 
 
@@ -1818,7 +2564,7 @@ def p_multidimension(p):
     """
 
 
-def p_BasicType(p):  # pending
+def p_BasicType(p):
     """BasicType : UINT
     | UINT8
     | UINT16
@@ -1840,7 +2586,7 @@ def p_BasicType(p):  # pending
     p[0].ast = add_edges(p)
 
 
-def p_ElementList(p):  # pending
+def p_ElementList(p):
     """ElementList : Element COMMA ElementList
     | Element"""
     p[0] = Node(
@@ -1848,8 +2594,13 @@ def p_ElementList(p):  # pending
     )
     p[0].ast = add_edges(p)
 
+    if len(p) == 2:
+        p[0].code = p[1].code
+    else:
+        p[0].code = p[1].code + p[3].code
 
-def p_Element(p):  # pending
+
+def p_Element(p):
     """Element : Expression
     | LiteralValue"""
     p[0] = p[1]
@@ -1891,9 +2642,9 @@ def p_Expression(p):
                 and (p[3].type == "BOOL" or p[3].type == "boolconst")
             ):
                 print_compilation_error(
-                    p[1].line_num,
-                    "COMPILATION ERROR : Incompatible data type with "
-                    + p[2]
+                    str(p[1].line_num)
+                    + "COMPILATION ERROR : Incompatible data type with "
+                    + str(p[2])
                     + " operator",
                 )
 
@@ -1906,6 +2657,17 @@ def p_Expression(p):
                     children=[],
                 )
                 p[0].ast = add_edges(p)
+                p[0].true = generate_label()
+                p[0].false = generate_label()
+                DSU_merge(p[1].true, p[3].true)
+                DSU_merge(p[0].true, p[1].true)
+                DSU_merge(p[0].false, p[3].false)
+                p[0].code = p[1].code + p[3].code
+                # p[0].code.append(p[1].code)
+                p[0].code.append(["BNEZ", p[1].place, p[1].true])
+                # p[0].code.append(p[3].code)
+                p[0].code.append(["BNEZ", p[3].place, p[3].true])
+                p[0].code.append(["GOTO", p[3].false])
 
         if p[2] == "&&":
             if not (
@@ -1913,9 +2675,9 @@ def p_Expression(p):
                 and (p[3].type == "BOOL" or p[3].type == "boolconst")
             ):
                 print_compilation_error(
-                    p[1].line_num,
-                    "COMPILATION ERROR : Incompatible data type with "
-                    + p[2]
+                    str(p[1].line_num)
+                    + "COMPILATION ERROR : Incompatible data type with "
+                    + str(p[2])
                     + " operator",
                 )
 
@@ -1928,15 +2690,26 @@ def p_Expression(p):
                     children=[],
                 )
                 p[0].ast = add_edges(p)
+                p[0].true = generate_label()
+                p[0].false = generate_label()
+                DSU_merge(p[1].false, p[3].false)
+                DSU_merge(p[0].false, p[1].false)
+                DSU_merge(p[0].true, p[3].true)
+                p[0].code = p[1].code + p[3].code
+                # p[0].code.append(p[1].code)
+                p[0].code.append(["BEZ", p[1].place, p[1].false])
+                # p[0].code.append(p[3].code)
+                p[0].code.append(["BEZ", p[3].place, p[3].false])
+                p[0].code.append(["GOTO", p[3].true])
 
         if p[2] == "|" or p[2] == "^" or p[2] == "&":
             if not (
                 isint(p[1].type) and isint(p[3].type)
             ):  # can be int 8, int 32 etc or intconst
                 print_compilation_error(
-                    p[1].line_num,
-                    "COMPILATION ERROR : Incompatible data type with "
-                    + p[2]
+                    str(p[1].line_num)
+                    + "COMPILATION ERROR : Incompatible data type with "
+                    + str(p[2])
                     + " operator",
                 )
 
@@ -1949,7 +2722,17 @@ def p_Expression(p):
                         type=p[1].type,
                         children=[],
                     )
-                    p[0].ast = add_edges(p)
+
+                    if not (p[1].type == "intconst" and p[3].type == "intconst"):
+                        p[0].code = p[1].code + p[3].code
+                        # p[0].code.append(p[3].code)
+                        p[0].place = get_token()
+                        p[0].code.append([p[2], p[0].place, p[1].place, p[3].place])
+                    else:
+                        p[0].val = str(operate(int(p[1].val), p[2], int(p[3].val)))
+                        p[0].code = []
+                        p[0].place = p[0].val
+                        p[0].ast = add_edges(p)
                 elif p[1].type == "intconst":
                     p[0] = Node(
                         name=p[2],
@@ -1957,6 +2740,11 @@ def p_Expression(p):
                         line_num=p[1].line_num,
                         type=p[3].type,
                         children=[],
+                    )
+                    p[0].code = p[3].code
+                    p[0].place = get_token()
+                    p[0].code.append(
+                        ["immediate" + p[2], p[0].place, p[3].place, p[1].place]
                     )
                     p[0].ast = add_edges(p)
                 elif p[3].type == "intconst":
@@ -1967,44 +2755,35 @@ def p_Expression(p):
                         type=p[1].type,
                         children=[],
                     )
+                    p[0].code = p[1].code
+                    p[0].place = get_token()
+                    p[0].code.append(
+                        ["immediate" + p[2], p[0].place, p[1].place, p[3].place]
+                    )
                     p[0].ast = add_edges(p)
                 else:
                     print_compilation_error(
-                        p[1].line_num,
-                        "COMPILATION ERROR : Incompatible data type with "
-                        + p[2]
+                        str(p[1].line_num)
+                        + "COMPILATION ERROR : Incompatible data type with "
+                        + str(p[2])
                         + " operator",
                     )
 
-        if p[2] == "==" or p[2] == "!=":
+        if (
+            p[2] == "=="
+            or p[2] == "!="
+            or p[2] == "<="
+            or p[2] == ">="
+            or p[2] == "<"
+            or p[2] == ">"
+        ):
             if (
                 equal(p[1].type, p[3].type) != ""
             ):  # should be exactly equal or atleast one is a constant
-                p[0] = Node(
-                    name=p[2],
-                    val="",
-                    line_num=p[1].line_num,
-                    type=equal(p[1].type, p[3].type),
-                    children=[],
-                )
-                p[0].ast = add_edges(p)
-            else:
-                print_compilation_error(
-                    p[1].line_num,
-                    "COMPILATION ERROR : Incompatible data type with "
-                    + p[2]
-                    + " operator",
-                )
-
-        if p[2] == "<=" or p[2] == ">=" or p[2] == "<" or p[2] == ">":
-            if (
-                equal(p[1].type, p[3].type) != ""
-            ):  # should be exactly equal or atleast one is a constant
-
-                if notcomparable(p[1].type):
+                if notcomparable(p[1].type) or notcomparable(p[3].type):
                     print_compilation_error(
                         p[1].line_num,
-                        "COMPILATION ERROR : Incomparable data type with "
+                        "COMPILATION ERROR : Incompatible data type with "
                         + p[2]
                         + " operator",
                     )
@@ -2014,15 +2793,94 @@ def p_Expression(p):
                         name=p[2],
                         val="",
                         line_num=p[1].line_num,
-                        type=equal(p[1].type, p[3].type),
+                        type="BOOL",
                         children=[],
                     )
-                    p[0].ast = add_edges(p)
+                    if p[1].type == "intconst" and p[3].type == "intconst":
+                        p[0].val = operate(int(p[1].val), p[2], int(p[3].val))
+                        p[0].code = []
+                        p[0].place = p[0].val
+                        p[0].type = "boolconst"
+                        p[0].ast = add_edges(p)
+                    elif p[1].type == "floatconst" and p[3].type == "floatconst":
+                        p[0].val = operate(float(p[1].val), p[2], float(p[3].val))
+                        p[0].code = []
+                        p[0].place = p[0].val
+                        p[0].type = "boolconst"
+                        p[0].ast = add_edges(p)
+                    else:
+                        if p[3].type == "intconst":
+                            p[0].code = p[1].code
+                            p[0].place = get_token()
+                            p[0].code.append(
+                                [
+                                    "immediate" + "int" + p[2],
+                                    p[0].place,
+                                    p[1].place,
+                                    p[3].place,
+                                ]
+                            )
+                            p[0].ast = add_edges(p)
+                        elif p[3].type == "floatconst":
+                            p[0].code = p[1].code
+                            p[0].place = get_token()
+                            p[0].code.append(
+                                [
+                                    "immediate" + "float" + p[2],
+                                    p[0].place,
+                                    p[1].place,
+                                    p[3].place,
+                                ]
+                            )
+                            p[0].ast = add_edges(p)
+                        elif p[1].type == "intconst":
+                            p[0].code = p[3].code
+                            p[0].place = get_token()
+                            p[0].code.append(
+                                [
+                                    "immediate" + "int" + p[2],
+                                    p[0].place,
+                                    p[3].place,
+                                    p[1].place,
+                                ]
+                            )
+                            p[0].ast = add_edges(p)
+
+                        elif p[1].type == "floatconst":
+                            p[0].code = p[3].code
+                            p[0].place = get_token()
+                            p[0].code.append(
+                                [
+                                    "immediate" + "float" + p[2],
+                                    p[0].place,
+                                    p[3].place,
+                                    p[1].place,
+                                ]
+                            )
+                            p[0].ast = add_edges(p)
+                        elif p[1].type in ["FLOAT32", "FLOAT64"]:
+                            p[0].code = p[1].code + p[3].code
+                            # p[0].code.append(p[3].code)
+                            p[0].place = get_token()
+                            p[0].code.append(
+                                ["float" + p[2], p[0].place, p[1].place, p[3].place]
+                            )
+                            p[0].ast = add_edges(p)
+                        else:
+                            p[0].code = p[1].code + p[3].code
+                            # p[0].code.append(p[3].code)
+                            p[0].place = get_token()
+                            p[0].code.append(
+                                ["int" + p[2], p[0].place, p[1].place, p[3].place]
+                            )
+                            p[0].ast = add_edges(p)
+                    p[0].true = generate_label()
+                    p[0].false = generate_label()
             else:
                 print_compilation_error(
-                    p[1].line_num,
-                    "COMPILATION ERROR : Incompatible data type with "
-                    + p[2]
+                    str(p[1].line_num)
+                    + "COMPILATION ERROR : Incompatible data type with "
+                    + str(p[2])
                     + " operator",
                 )
 
@@ -2031,9 +2889,9 @@ def p_Expression(p):
                 isint(p[1].type) and isint(p[3].type)
             ):  # can be int 8, int 32 etc or intconst
                 print_compilation_error(
-                    p[1].line_num,
-                    "COMPILATION ERROR : Incompatible data type with "
-                    + p[2]
+                    str(p[1].line_num)
+                    + "COMPILATION ERROR : Incompatible data type with "
+                    + str(p[2])
                     + " operator",
                 )
 
@@ -2045,8 +2903,31 @@ def p_Expression(p):
                     type=p[1].type,
                     children=[],
                 )
-                p[0].ast = add_edges(p)
+                if p[1].type == "intconst":
+                    print_compilation_error(
+                        str(p[1].line_num)
+                        + "COMPILATION ERROR : Cannot apply"
+                        + str(p[2])
+                        + " with "
+                        + str(p[1].type)
+                    )
 
+                else:
+                    if p[3].type == "intconst":
+                        p[0].code = p[1].code
+                        p[0].place = get_token()
+                        p[0].code.append(
+                            [p[2] + "logical", p[0].place, p[1].place, p[3].place]
+                        )
+                        p[0].ast = add_edges(p)
+                    else:
+                        p[0].code = p[1].code
+                        p[0].code = p[3].code
+                        p[0].place = get_token()
+                        p[0].code.append(
+                            [p[2] + "variable", p[0].place, p[1].place, p[3].place]
+                        )
+                        p[0].ast = add_edges(p)
         if p[2] == "+" or p[2] == "-" or p[2] == "*":
             if (
                 equal(p[1].type, p[3].type) != ""
@@ -2054,9 +2935,9 @@ def p_Expression(p):
 
                 if notcomparable(p[1].type):
                     print_compilation_error(
-                        p[1].line_num,
-                        "COMPILATION ERROR : Incomputable data type with "
-                        + p[2]
+                        str(p[1].line_num)
+                        + "COMPILATION ERROR : Incomputable data type with "
+                        + str(p[2])
                         + " operator",
                     )
 
@@ -2068,30 +2949,190 @@ def p_Expression(p):
                         type=equal(p[1].type, p[3].type),
                         children=[],
                     )
-                    p[0].ast = add_edges(p)
+                    if p[1].type == "intconst" and p[3].type == "intconst":
+                        p[0].val = str(operate(int(p[1].val), p[2], int(p[3].val)))
+                        p[0].code = []
+                        p[0].place = p[0].val
+                        p[0].ast = add_edges(p)
+                    elif p[1].type == "floatconst" and p[3].type == "floatconst":
+                        p[0].val = str(operate(float(p[1].val), p[2], float(p[3].val)))
+                        p[0].code = []
+                        p[0].place = p[0].val
+                        p[0].ast = add_edges(p)
+                    else:
+                        if p[3].type == "intconst":
+                            p[0].code = p[1].code
+                            p[0].place = get_token()
+                            p[0].code.append(
+                                [
+                                    "immediate" + "int" + p[2],
+                                    p[0].place,
+                                    p[1].place,
+                                    p[3].place,
+                                ]
+                            )
+                            p[0].ast = add_edges(p)
+                        elif p[3].type == "floatconst":
+                            p[0].code = p[1].code
+                            p[0].place = get_token()
+                            p[0].code.append(
+                                [
+                                    "immediate" + "float" + p[2],
+                                    p[0].place,
+                                    p[1].place,
+                                    p[3].place,
+                                ]
+                            )
+                            p[0].ast = add_edges(p)
+                        elif p[1].type == "intconst":
+                            p[0].code = p[3].code
+                            p[0].place = get_token()
+                            p[0].code.append(
+                                [
+                                    "immediate" + "int" + p[2],
+                                    p[0].place,
+                                    p[3].place,
+                                    p[1].place,
+                                ]
+                            )
+                            p[0].ast = add_edges(p)
+
+                        elif p[1].type == "floatconst":
+                            p[0].code = p[3].code
+                            p[0].place = get_token()
+                            p[0].code.append(
+                                [
+                                    "immediate" + "float" + p[2],
+                                    p[0].place,
+                                    p[3].place,
+                                    p[1].place,
+                                ]
+                            )
+                            p[0].ast = add_edges(p)
+                        elif p[1].type in ["FLOAT32", "FLOAT64"]:
+                            p[0].code = p[1].code + p[3].code
+                            # p[0].code = p[1].code
+                            # p[0].code.append(p[3].code)
+                            p[0].place = get_token()
+                            p[0].code.append(
+                                ["float" + p[2], p[0].place, p[1].place, p[3].place]
+                            )
+                            p[0].ast = add_edges(p)
+                        else:
+                            p[0].code = p[1].code + p[3].code
+                            # p[0].code = copy.deepcopy(p[1].code)
+                            # p[0].code.append(p[3].code)
+                            p[0].place = get_token()
+                            p[0].code.append(
+                                ["int" + p[2], p[0].place, p[1].place, p[3].place]
+                            )
+                            p[0].ast = add_edges(p)
             else:
                 print_compilation_error(
-                    p[1].line_num,
-                    "COMPILATION ERROR : Incompatible data type with "
-                    + p[2]
+                    str(p[1].line_num)
+                    + "COMPILATION ERROR : Incompatible data type with "
+                    + str(p[2])
                     + " operator",
                 )
 
         if p[2] == "/":
             if equal(p[1].type, p[3].type) != "":
-                p[0] = Node(
-                    name=p[2],
-                    val="",
-                    line_num=p[1].line_num,
-                    type=equal(p[1].type, p[3].type),
-                    children=[],
-                )
-                p[0].ast = add_edges(p)
+                if notcomparable(p[1].type):
+                    print_compilation_error(
+                        str(p[1].line_num)
+                        + "COMPILATION ERROR : Incomputable data type with "
+                        + str(p[2])
+                        + " operator",
+                    )
+
+                else:
+                    p[0] = Node(
+                        name=p[2],
+                        val="",
+                        line_num=p[1].line_num,
+                        type=equal(p[1].type, p[3].type),
+                        children=[],
+                    )
+                    if p[1].type == "intconst" and p[3].type == "intconst":
+                        p[0].val = str((int(p[1].val) // int(p[3].val)))
+                        p[0].code = []
+                        p[0].place = p[0].val
+                        p[0].ast = add_edges(p)
+                    elif p[1].type == "floatconst" and p[3].type == "floatconst":
+                        p[0].val = str((float(p[1].val) / float(p[3].val)))
+                        p[0].code = []
+                        p[0].place = p[0].val
+                        p[0].ast = add_edges(p)
+                        p[0].ast = add_edges(p)
+                    else:
+                        if p[3].type == "intconst":
+                            p[0].code = p[1].code
+                            p[0].place = get_token()
+                            temp_token = get_token()
+                            p[0].code.append(
+                                ["load immediate ", temp_token, p[3].place]
+                            )
+                            p[0].code.append(
+                                ["int" + p[2], p[0].place, p[1].place, temp_token]
+                            )
+                            p[0].ast = add_edges(p)
+                        elif p[3].type == "floatconst":
+                            p[0].code = p[1].code
+                            p[0].place = get_token()
+                            temp_token = get_token()
+                            p[0].code.append(
+                                ["load immediate ", temp_token, p[3].place]
+                            )
+                            p[0].code.append(
+                                ["float" + p[2], p[0].place, p[1].place, temp_token]
+                            )
+                            p[0].ast = add_edges(p)
+                        elif p[1].type == "intconst":
+                            p[0].code = p[3].code
+                            p[0].place = get_token()
+                            temp_token = get_token()
+                            p[0].code.append(
+                                ["load immediate ", temp_token, p[1].place]
+                            )
+                            p[0].code.append(
+                                ["int" + p[2], p[0].place, temp_token, p[3].place]
+                            )
+                            p[0].ast = add_edges(p)
+                        elif p[1].type == "floatconst":
+                            p[0].code = p[3].code
+                            p[0].place = get_token()
+                            temp_token = get_token()
+                            p[0].code.append(
+                                ["load immediate ", temp_token, p[1].place]
+                            )
+                            p[0].code.append(
+                                ["int" + p[2], p[0].place, temp_token, p[3].place]
+                            )
+                            p[0].ast = add_edges(p)
+
+                        elif p[1].type in ["FLOAT32", "FLOAT64"]:
+                            p[0].code = p[1].code + p[3].code
+                            # p[0].code = p[1].code
+                            # p[0].code.append(p[3].code)
+                            p[0].place = get_token()
+                            p[0].code.append(
+                                ["float" + p[2], p[0].place, p[1].place, p[3].place]
+                            )
+                            p[0].ast = add_edges(p)
+                        else:
+                            p[0].code = p[1].code + p[3].code
+                            # p[0].code = p[1].code
+                            # p[0].code.append(p[3].code)
+                            p[0].place = get_token()
+                            p[0].code.append(
+                                ["int" + p[2], p[0].place, p[1].place, p[3].place]
+                            )
+                            p[0].ast = add_edges(p)
             else:
                 print_compilation_error(
-                    p[1].line_num,
-                    "COMPILATION ERROR : Incompatible data type with "
-                    + p[2]
+                    str(p[1].line_num)
+                    + "COMPILATION ERROR : Incompatible data type with "
+                    + str(p[2])
                     + " operator",
                 )
 
@@ -2100,9 +3141,9 @@ def p_Expression(p):
                 isint(p[1].type) and isint(p[3].type)
             ):  # can be int 8, int 32 etc or intconst
                 print_compilation_error(
-                    p[1].line_num,
-                    "COMPILATION ERROR : Incompatible data type with "
-                    + p[2]
+                    str(p[1].line_num)
+                    + "COMPILATION ERROR : Incompatible data type with "
+                    + str(p[2])
                     + " operator",
                 )
 
@@ -2115,33 +3156,65 @@ def p_Expression(p):
                         type=equal(p[1].type, p[3].type),
                         children=[],
                     )
-                    p[0].ast = add_edges(p)
+                    if p[1].type == "intconst" and p[3].type == "intconst":
+                        p[0].val = str((int(p[1].val) % int(p[3].val)))
+                        p[0].place = p[0].val
+                        p[0].code = []
+                        p[0].ast = add_edges(p)
+                    else:
+                        if p[1].type != "intconst" and p[3].type != "intconst":
+                            p[0].code = p[1].code + p[3].code
+                            # p[0].code = p[1].code
+                            # p[0].code.append(p[3].code)
+                            p[0].place = get_token()
+                            p[0].code.append(
+                                ["int" + p[2], p[0].place, p[1].place, p[3].place]
+                            )
+                            p[0].ast = add_edges(p)
+                        else:
+                            if p[1].type == "intconst":
+                                p[0].code = p[3].code
+                                p[0].place = get_token()
+                                temp_token = get_token()
+                                p[0].code.append(
+                                    ["load immediate ", temp_token, p[1].place]
+                                )
+                                p[0].code.append(
+                                    ["int" + p[2], p[0].place, temp_token, p[3].place]
+                                )
+                                p[0].ast = add_edges(p)
+                            else:
+                                p[0].code = p[1].code
+                                p[0].place = get_token()
+                                temp_token = get_token()
+                                p[0].code.append(
+                                    ["load immediate ", temp_token, p[3].place]
+                                )
+                                p[0].code.append(
+                                    ["int" + p[2], p[0].place, p[1].place, temp_token]
+                                )
+                                p[0].ast = add_edges(p)
                 else:
                     print_compilation_error(
-                        p[1].line_num,
-                        "COMPILATION ERROR : Incompatible data type with "
-                        + p[2]
+                        str(p[1].line_num)
+                        + "COMPILATION ERROR : Incompatible data type with "
+                        + str(p[2])
                         + " operator",
                     )
 
-    if p[0].type == "intconst":
-        p[0].val = 0
 
-
-def p_UnaryExpr(p):  # type casting not handled as of yet
+def p_UnaryExpr(p):  #  handle 3AC of STAR , BIT_AND
     """UnaryExpr : PrimaryExpr
     | unary_op UnaryExpr"""
 
     if len(p) == 2:
         p[0] = p[1]
+        p[0].code = p[1].code
         p[0].ast = add_edges(p)
     else:
-        # p[1] can be &,*,+,-,~,!
-
         if (
             p[1].val == "&"
         ):  # to check on what what can it be applied -> composite literal for example
-            # no '&' child added, will deal in traversal
             p[0] = Node(
                 name="AddressOfVariable",
                 val=p[2].val,
@@ -2157,6 +3230,8 @@ def p_UnaryExpr(p):  # type casting not handled as of yet
                     + " cannot dereference variable of type "
                     + p[2].type
                 )
+            p[0].place = get_token()
+            p[0].code.append(["getaddress", p[0].place, p[2].place])
 
         elif p[1].val == "*":
             if not p[2].type.endswith("*"):
@@ -2175,6 +3250,8 @@ def p_UnaryExpr(p):  # type casting not handled as of yet
                 children=[p[2]],
             )
             p[0].ast = add_edges(p)
+            p[0].place = get_token()
+            p[0].code.append(["dereference", p[0].place, p[2].place])
 
         else:  # check on what this can be applied as well
             p[0] = Node(
@@ -2185,6 +3262,80 @@ def p_UnaryExpr(p):  # type casting not handled as of yet
                 children=[p[2]],
             )
             p[0].ast = add_edges(p)
+            if p[1].val == "-":
+                if isint(p[2].type) or p[2].type in [
+                    "FLOAT32",
+                    "FLOAT64",
+                    "floatconst",
+                ]:
+                    if p[2].type == "intconst":
+                        p[0].val = str(-1 * int(p[2].val))
+                        p[0].place = p[0].val
+                    if p[1].type == "floatconst":
+                        p[0].val = str(-1 * float(p[2].val))
+                        p[0].place = p[0].val
+                    if isint(p[2].type):
+                        p[0].code = p[2].code
+                        p[0].place = get_token()
+                        p[0].code.append(
+                            ["immediateint*", p[0].place, p[2].place, "-1"]
+                        )
+                    else:
+                        p[0].code = p[2].code
+                        p[0].place = get_token()
+                        p[0].code.append(
+                            ["immediatefloat*", p[0].place, p[2].place, "-1"]
+                        )
+                else:
+                    print_compilation_error(
+                        "COMPILATION ERROR at line "
+                        + str(p[1].line_num)
+                        + " cannot apply  operation of type "
+                        + str(p[1].val)
+                        + "to"
+                        + str(p[2].type )
+                    )
+
+            if p[1].val == "+":
+                if isint(p[2].type) or p[2].type in [
+                    "FLOAT32",
+                    "FLOAT64",
+                    "floatconst",
+                ]:
+                    if p[2].type == "intconst":
+                        p[0].val = str(int(p[2].val))
+                    if p[1].type == "floatconst":
+                        p[0].val = str(*float(p[2].val))
+                else:
+                    print_compilation_error(
+                        "COMPILATION ERROR at line "
+                        + str(p[1].line_num)
+                        + " cannot apply  operation of type "
+                        + str(p[1].val)
+                        + "to"
+                        + str(p[2].type)
+                    )
+
+            if p[1].val == "!":
+                if p[2].type in ["boolconst"]:
+                    if p[2].val == "True":
+                        p[0].val = "False"
+                    if p[2].val == "False":
+                        p[0].val = "True"
+                    p[0].place = p[0].val
+                elif p[2].type == "BOOL":
+                    p[0].place = get_token()
+                    p[0].code = p[2].code
+                    p[0].code.append([p[1], p[2].place, p[0].place])
+                else:
+                    print_compilation_error(
+                        "COMPILATION ERROR at line "
+                        + str(p[1].line_num)
+                        + " cannot apply  operation of type "
+                        + str(p[1].val)
+                        + "to"
+                        + str(p[2].type)
+                    )
 
 
 def p_unary_op(p):
@@ -2206,6 +3357,10 @@ def p_unary_op(p):
 def p_ShortVarDecl(p):
     """ShortVarDecl : IDENTIFIER COLON_ASSIGN Expression"""
     #    | IDENTIFIER COLON_ASSIGN Make_Func"""
+    global _global_sp
+    global _current_scope
+    global _current_size
+
     lexeme = ""
     if p[1] is tuple:
         lexeme = p[1][0]
@@ -2218,9 +3373,44 @@ def p_ShortVarDecl(p):
             "COMPILATION ERROR at line "
             + str(p.lineno(1))
             + " : "
-            + lexeme
+            + str(lexeme)
             + " already declared "
         )
+
+    p[0] = Node(name="VarSpec", val="", type="", line_num=p.lineno(1), children=[])
+    p[0].ast = add_edges(p)
+
+    if not p[3].type.startswith("ARRAY"):
+        p[0].code = p[3].code
+        if p[3].type.endswith("*") or p[3].type in [
+            "INT",
+            "INT8",
+            "INT16",
+            "INT32",
+            "INT64",
+            "UINT",
+            "UINT8",
+            "UINT16",
+            "UINT32",
+            "UINT64",
+            "BOOL",
+        ]:
+            p[0].code.append(["int_copy", lexeme, p[3].place])
+        elif p[3].type in ["FLOAT32", "FLOAT64"]:
+            p[0].code.append(["float_copy", lexeme, p[3].place])
+        elif p[3].type in ["STRING"]:
+            p[0].code.append(["string_copy", lexeme, p[3].place])
+        elif p[3].type == "intconst":
+            p[0].code.append(["int_copy_immediate", lexeme, p[3].place])
+        elif p[3].type == "floatconst":
+            p[0].code.append(["float_copy_immediate", lexeme, p[3].place])
+        elif p[3].type == "boolconst":
+            if p[3].place == "True":
+                p[0].code.append(["load immediate", lexeme, "1"])
+            else:
+                p[0].code.append(["load immediate", lexeme, "0"])
+        elif p[3].type == "stringconst":
+            p[0].code.append(["string_copy_immediate", lexeme, p[3].place])
 
     if True:
         if p[3].type == "intconst":
@@ -2235,20 +3425,39 @@ def p_ShortVarDecl(p):
         if not p[3].type.startswith("ARRAY"):
             SYMBOL_TABLE[_current_scope][lexeme] = {}
             SYMBOL_TABLE[_current_scope][lexeme]["type"] = p[3].type
+            if p[3].type.endswith("*"):
+                SYMBOL_TABLE[_current_scope][lexeme]["size"] = 8
+                _current_size[_current_scope] += 8
+                _global_sp += 8
+            else:
+                SYMBOL_TABLE[_current_scope][lexeme]["size"] = _size[p[3].type]
+                _current_size[_current_scope] += _size[p[3].type]
+                _global_sp += _size[p[3].type]
+
         else:
             i = 0
             SYMBOL_TABLE[_current_scope][lexeme] = {}
             SYMBOL_TABLE[_current_scope][lexeme]["type"] = p[3].type
             temp = p[3].type.split()
             dim = []
+            Quant = 1
             while temp[i] == "ARRAY":
                 i = i + 1
                 dim.append(int(temp[i]))
+                Quant *= int(temp[i])
                 i = i + 1
+            typ = temp[i]
+            if typ == "struct":
+                typ = typ + " " + temp[i + 1]
+            if typ.endswith("*"):
+                SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * 8
+                _current_size[_current_scope] += Quant * 8
+                _global_sp += Quant * 8
+            else:
+                SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * _size[typ]
+                _current_size[_current_scope] += Quant * _size[typ]
+                _global_sp += Quant * _size[typ]
             SYMBOL_TABLE[_current_scope][lexeme]["array"] = dim
-
-    p[0] = Node(name="VarSpec", val="", type="", line_num=p.lineno(1), children=[])
-    p[0].ast = add_edges(p)
 
 
 # Function Declaration
@@ -2265,6 +3474,8 @@ def p_func_decl(p):
 
     global _current_scope
     _current_scope = _parent[_current_scope]
+
+    p[0].code = p[4].code
 
     # check if the function already exists else add to symbol table
     # if p[2].val in SYMBOL_TABLE[0].keys():
@@ -2288,8 +3499,11 @@ def p_funcBegin(p):
     """funcBegin : FUNC"""
     global _current_scope
     global _next_scope
+    global _current_size
+
     _parent[_next_scope] = _current_scope
     _current_scope = _next_scope
+    _current_size[_current_scope] = 0
     SYMBOL_TABLE.append({})
     _next_scope = _next_scope + 1
 
@@ -2320,7 +3534,7 @@ def p_FunctionName(p):
             "COMPILATION ERROR at line :"
             + str(p.lineno(1))
             + ": function : "
-            + lexeme
+            + str(lexeme)
             + " already declared"
         )
 
@@ -2337,6 +3551,7 @@ def p_FunctionBody(p):
         name="FunctionBody", val="", type="", children=[], line_num=p[1].line_num
     )
     p[0].ast = add_edges(p)
+    p[0].code = p[1].code
 
 
 def p_Signature(p):
@@ -2370,16 +3585,30 @@ def p_Signature(p):
 
         SYMBOL_TABLE[_current_scope][child.val] = {}
         SYMBOL_TABLE[_current_scope][child.val]["type"] = child.type
+        SYMBOL_TABLE[_current_scope][child.val]["size"] = _size.get(child.type, 0)
+        if child.type.endswith("*"):
+            SYMBOL_TABLE[_current_scope][child.val]["size"] = 8
+        else:
+            SYMBOL_TABLE[_current_scope][child.val]["size"] = _size.get(child.type, 0)
         arg_list.append(child.type)
 
         if child.type.startswith("ARRAY"):
             i = 0
             temp = child.type.split()
             dim = []
+            Quant = 1
             while temp[i] == "ARRAY":
                 i = i + 1
                 dim.append(int(temp[i]))
+                Quant *= int(temp[i])
                 i = i + 1
+            typ = temp[i]
+            if typ == "struct":
+                typ = typ + " " + temp[i + 1]
+            if typ.endswith("*"):
+                SYMBOL_TABLE[_current_scope][child.val]["size"] = Quant * 8
+            else:
+                SYMBOL_TABLE[_current_scope][child.val]["size"] = Quant * _size[typ]
             SYMBOL_TABLE[_current_scope][child.val]["array"] = dim
 
     SYMBOL_TABLE[0][_current_function_name]["argumentList"] = arg_list
@@ -2448,26 +3677,155 @@ def p_ParameterList(p):
 ########
 
 
-def p_IfStmt(p):
+def p_IfStmt_1(p):
     """IfStmt : IFBegin SimpleStmt SEMICOLON Expression Block
     | IFBegin SimpleStmt SEMICOLON Expression Block ELSE Block
-    | IFBegin SimpleStmt SEMICOLON Expression Block ELSE IfStmt
     | IFBegin Expression Block
-    | IFBegin Expression Block ELSE  IfStmt
-    | IFBegin Expression Block ELSE  Block
     """
-    p[0] = Node(name="IfStatment", val="", type="", children=[], line_num=p.lineno(1))
+    p[0] = Node(name="IfStmt", val="", type="", children=[], line_num=p.lineno(1))
+
+    global _global_sp
     global _current_scope
+
+    _global_sp -= _current_size[
+        _current_scope
+    ]  # TODO: whatever we are using for size of scope
     _current_scope = _parent[_current_scope]
     p[0].ast = add_edges(p)
+
+    ## can apply type chek if required
+    exit_label = generate_label()
+
+    if len(p) == 4:
+        p[0].code = p[2].code
+        newlabel = p[2].false  # to be implemented
+        p[0].code.append(["if", p[2].place, "==", "False", "goto", newlabel])
+        p[0].code.append([p[2].true])
+        p[0].code += p[3].code
+        p[0].code.append(["goto", exit_label])
+        p[0].code.append([newlabel])
+        p[0].code.append([exit_label])
+
+    elif len(p) == 6:
+        p[0].code = p[2].code
+        p[0].code += p[4].code
+        newlabel = p[4].false  # to be implemented
+        p[0].code.append(["if", p[4].place, "==", "False", "goto", newlabel])
+        p[0].code.append([p[4].true])
+        p[0].code += p[5].code
+        p[0].code.append(["goto", exit_label])
+        p[0].code.append([newlabel])
+        p[0].code.append([exit_label])
+
+    elif len(p) == 8:
+        p[0].code = p[2].code
+        p[0].code += p[4].code
+        newlabel = p[4].false  # to be implemented
+        p[0].code.append(["if", p[4].place, "==", "False", "goto", newlabel])
+        p[0].code.append([p[4].true])
+        p[0].code += p[5].code
+        newlabel1 = generate_label()
+        p[0].code.append(["goto", newlabel1])
+        p[0].code.append([newlabel])
+        p[0].code += p[5].code
+        p[0].code.append([newlabel1])
+
+
+def p_IfStmt_2(p):
+    """IfStmt : IFBegin SimpleStmt SEMICOLON Expression Block ELSE IfStmt
+    | IFBegin Expression Block ELSE  Block
+    """
+    p[0] = Node(name="IfStmt", val="", type="", children=[], line_num=p.lineno(1))
+
+    global _global_sp
+    global _current_scope
+
+    _global_sp -= _current_size[
+        _current_scope
+    ]  # TODO: whatever we are using for size of scope
+    _current_scope = _parent[_current_scope]
+    p[0].ast = add_edges(p)
+
+    ## can apply type check if required
+
+    if len(p) == 6:
+        p[0].code = p[2].code
+        newlabel = p[2].false  # to be implemented
+        p[0].code.append(["if", p[2].place, "==", "False", "goto", newlabel])
+
+        p[0].code.append([p[2].true])
+        p[0].code += p[3].code
+        newlabel1 = generate_label()
+        p[0].code.append(["goto", newlabel1])
+        p[0].code.append([newlabel])
+        p[0].code += p[5].code
+        p[0].code.append([newlabel1])
+
+    else:
+        p[0].code = p[2].code
+        p[0].code += p[4].code
+        newlabel = p[4].false  # to be implemented
+        p[0].code.append(["if", p[4].place, "==", "False", "goto", newlabel])
+        p[0].code.append([p[4].true])
+        p[0].code += p[5].code
+        newlabel1 = generate_label()
+        p[0].code.append(["goto", newlabel1])
+        p[0].code.append([newlabel])
+        p[0].code += p[5].code
+        p[0].code.append([newlabel1])
+
+
+def p_IfStmt_3(p):
+    """IfStmt : IFBegin Expression Block ELSE  IfStmt"""
+    p[0] = Node(name="IfStmt", val="", type="", children=[], line_num=p.lineno(1))
+
+    global _global_sp
+    global _current_scope
+
+    _global_sp -= _current_size[
+        _current_scope
+    ]  # TODO: whatever we are using for size of scope
+    _current_scope = _parent[_current_scope]
+    p[0].ast = add_edges(p)
+
+    ## can apply type chek if required
+    p[0].code = p[2].code
+    newlabel = p[2].false  # to be implemented
+    p[0].code.append(["if", p[2].place, "==", "False", "goto", newlabel])
+
+    p[0].code.append([p[2].true])
+    p[0].code += p[3].code
+    newlabel1 = generate_label()
+    p[0].code.append(["goto", newlabel1])
+    p[0].code.append([newlabel])
+    p[0].code += p[5].code
+    p[0].code.append([newlabel1])
+
+
+# def p_IfStmt(p):
+#     """IfStmt : IFBegin SimpleStmt SEMICOLON Expression Block
+#     | IFBegin SimpleStmt SEMICOLON Expression Block ELSE Block
+#     | IFBegin SimpleStmt SEMICOLON Expression Block ELSE IfStmt
+#     | IFBegin Expression Block
+#     | IFBegin Expression Block ELSE  IfStmt
+#     | IFBegin Expression Block ELSE  Block
+#     """
+#     p[0] = Node(name="IfStmt", val="", type="", children=[], line_num=p.lineno(1))
+#     global _current_scope
+#     _current_scope = _parent[_current_scope]
+#     p[0].ast = add_edges(p)
 
 
 def p_IfBegin(p):
     """IFBegin : IF"""
     global _current_scope
     global _next_scope
+    global _current_scope
+
     _parent[_next_scope] = _current_scope
     _current_scope = _next_scope
+    _current_size[_current_scope] = 0
+
     SYMBOL_TABLE.append({})
     _next_scope = _next_scope + 1
     p[0] = p[1]
@@ -2475,12 +3833,12 @@ def p_IfBegin(p):
 
 
 def p_SwitchStmt(p):
-    """SwitchStmt : SWITCH Expression LEFT_BRACE expr_case_clause_list RIGHT_BRACE
+    """SwitchStmt : SWITCH ExpressionSwitch LEFT_BRACE expr_case_clause_list RIGHT_BRACE
     | SWITCH LEFT_BRACE  expr_case_clause_list RIGHT_BRACE
     """
-    p[0] = Node(
-        name="SwitchStatement", val="", type="", children=[], line_num=p.lineno(1)
-    )
+    p[0] = Node(name="SwitchStmt", val="", type="", children=[], line_num=p.lineno(1))
+
+    global _exit_label_switch
 
     # check if all the type match with the type of expression added in switch
     if len(p) == 6:
@@ -2491,12 +3849,26 @@ def p_SwitchStmt(p):
                         "COMPILATION ERROR at line "
                         + str(child.line_num)
                         + ", Expression type: "
-                        + p[2].type
+                        + str(p[2].type)
                         + "doesn't match with Case type:"
-                        + child.type
+                        + str(child.type)
                     )
 
+            p[0].code = p[2].code + p[4].code
+            p[0].code.append([_exit_label_switch])
+
     p[0].ast = add_edges(p)
+
+
+def p_ExpressionSwitch(p):
+    """ExpressionSwitch : Expression"""
+    p[0] = p[1]
+    p[0].ast = add_edges(p)
+    global _current_switch_place
+    global _exit_label_switch
+
+    _current_switch_place = p[1].place
+    _exit_label_switch = generate_label()
 
 
 def p_expr_case_clause_list(p):
@@ -2514,6 +3886,7 @@ def p_expr_case_clause_list(p):
         p[0] = p[3]
         p[0].children.append(p[1])
         p[0].ast = add_edges(p)
+        p[0].code = p[1].code + p[3].code
 
     else:
         p[0] = Node(
@@ -2526,6 +3899,7 @@ def p_expr_case_clause_list(p):
 
         p[0].children.append(p[1])
         p[0].ast = add_edges(p)
+        p[0].code = p[1].code
 
 
 ##TODO why do we have a expression list here , doesn't work in go but is there in the doc
@@ -2536,8 +3910,12 @@ def p_ExprSwitchCase(p):
     """
     global _current_scope
     global _next_scope
+    global _current_size
+
     _parent[_next_scope] = _current_scope
     _current_scope = _next_scope
+    _current_size[_current_scope] = 0
+
     SYMBOL_TABLE.append({})
     _next_scope = _next_scope + 1
 
@@ -2547,9 +3925,13 @@ def p_ExprSwitchCase(p):
         )
         check = True
         i = 0
+        p[0].placelist = []
+        p[0].code = p[2].code
         for i in range(len(p[2].children)):
             if p[2].children[i].type != p[2].children[0].type:
                 check = False
+            p[0].placelist.append(p[2].children[i].place)
+
         if check:
             p[0].type = p[2].children[0].type
         else:
@@ -2572,6 +3954,25 @@ def p_ExprCaseClause(p):
     p[0] = Node(
         name="ExprCaseClause", val="", type="", children=[], line_num=p[1].line_num
     )
+    global _current_switch_place
+    global _exit_label_switch
+
+    newlabel = generate_label()
+    newlabel1 = generate_label()
+    p[0].code = p[1].code
+
+    if p[1].type == "default":
+        p[0].code.append(["goto", newlabel])
+    else:
+        for i in p[1].placelist:
+            p[0].code.append(["if", _current_switch_place, "==", i, "goto", newlabel])
+
+    p[0].code.append(["goto", newlabel1])
+    p[0].code.append([newlabel])
+    p[0].code += p[3].code
+    p[0].code.append(["goto", _exit_label_switch])
+    p[0].code.append([newlabel1])
+
     p[0].type = p[1].type
     p[0].ast = add_edges(p)
 
@@ -2579,17 +3980,73 @@ def p_ExprCaseClause(p):
     _current_scope = _parent[_current_scope]
 
 
-def p_ForStmt(p):
+def p_ForStmt_1(p):
     """ForStmt : ForBegin Block
     | ForBegin Expression Block
-    | ForBegin ForClause Block
     """
-    p[0] = Node(name="ForLoop", val="", type="", children=[], line_num=p.lineno(1))
-    global _loop_depth
-    _loop_depth -= 1
+    p[0] = Node(name="ForStmt", val="", type="", children=[], line_num=p.lineno(1))
+
     global _current_scope
     _current_scope = _parent[_current_scope]
     p[0].ast = add_edges(p)
+
+    global _break_label
+    global _continue_label
+    global _loop_depth
+    p[0].code = [[_continue_label[_loop_depth]]]
+
+    ## TODO of the expression doesn't evaluate a true or false value then it wont work
+    if len(p) == 3:
+        p[0].code += p[2].code
+        p[0].code.append(["goto", _continue_label[_loop_depth]])
+        p[0].code.append([_break_label[_loop_depth]])
+
+    ## TODO what would be it be "False" || "FALSE" || "false"
+    else:
+        p[0].code += p[1].code
+        p[0].code.append(
+            ["if", p[2].place, "==", "False", "goto", _break_label[_loop_depth]]
+        )
+        p[0].code += p[2].code
+        p[0].code.append(["goto", _continue_label[_loop_depth]])
+        p[0].code.append([_break_label[_loop_depth]])
+
+    _loop_depth -= 1
+
+
+def p_ForStmt_2(p):
+    """ForStmt : ForBegin ForClause Block"""
+    p[0] = Node(name="ForStmt", val="", type="", children=[], line_num=p.lineno(1))
+    global _loop_depth
+    global _current_scope
+    global _break_label
+    global _continue_label
+    _current_scope = _parent[_current_scope]
+    p[0].ast = add_edges(p)
+
+    p[0].code = p[2].code
+    p[0].code += p[3].code
+
+    if len(p[2].update) != 0:
+        p[0].code += p[2].update
+
+    p[0].code.append(["goto", _continue_label[_loop_depth]])
+    p[0].code.append([_break_label[_loop_depth]])
+
+    _loop_depth -= 1
+
+
+# def p_ForStmt(p):
+#     """ForStmt : ForBegin Block
+#     | ForBegin Expression Block
+#     | ForBegin ForClause Block
+#     """
+#     p[0] = Node(name="ForStmt", val="", type="", children=[], line_num=p.lineno(1))
+#     global _loop_depth
+#     _loop_depth -= 1
+#     global _current_scope
+#     _current_scope = _parent[_current_scope]
+#     p[0].ast = add_edges(p)
 
 
 def p_ForBegin(p):
@@ -2598,44 +4055,160 @@ def p_ForBegin(p):
     _loop_depth += 1
     global _current_scope
     global _next_scope
+    global _continue_label
+    global _break_label
+    global _current_size
+
     _parent[_next_scope] = _current_scope
     _current_scope = _next_scope
+    _current_size[_current_scope] = 0
+
     SYMBOL_TABLE.append({})
     _next_scope = _next_scope + 1
     p[0] = p[1]
     p[0] = add_edges(p)
 
+    newlabel = generate_label()
+    newlabel1 = generate_label()
 
-def p_ForClause(p):
+    _continue_label[_loop_depth] = newlabel
+    _break_label[_loop_depth] = newlabel1
+
+
+# TODO scope size -= for each end scope of for if
+def p_ForClause_1(p):
     """ForClause :  SimpleStmt SEMICOLON Expression SEMICOLON SimpleStmt
     | SimpleStmt SEMICOLON             SEMICOLON SimpleStmt
     | SimpleStmt SEMICOLON             SEMICOLON
-    |            SEMICOLON             SEMICOLON SimpleStmt
-    | SimpleStmt SEMICOLON  Expression SEMICOLON
-    |            SEMICOLON  Expression SEMICOLON SimpleStmt
-    |            SEMICOLON  Expression SEMICOLON
     |            SEMICOLON             SEMICOLON
     """
-    line_num = max(p[1].line_num, p.lineno(1))
-    p[0] = Node(name="ForClause", val="", type="", children=[], line_num=line_num)
+    if(type(p) is Node):
+        line_num = max(p[1].line_num, p.lineno(1))
+    else:
+        line_num = p.lineno(1)
+    p[0] = Node(
+        name="ForClause", val="", type="", children=[], line_num=line_num, update=[]
+    )
     p[0].ast = add_edges(p)
+
+    global _loop_depth
+    global _break_label
+    global _continue_label
+
+    if len(p) == 3:
+        p[0].code = [[_continue_label[_loop_depth]]]
+
+    else:
+        p[0].code = p[1].code
+        p[0].code.append([_continue_label[_loop_depth]])
+
+        if len(p) == 6:
+            p[0].code += p[3].code
+            # p[0].code.append(p[3].code)
+            p[0].code.append(
+                ["if", p[3].place, "==", "False", "goto", _break_label[_loop_depth]]
+            )
+            # TODO update instruction add to node
+            p[0].update = p[5].code
+
+        elif len(p) == 5:
+            p[0].update = p[4].code
+
+
+def p_ForClause_2(p):
+    """ForClause :             SEMICOLON             SEMICOLON SimpleStmt
+    | SimpleStmt SEMICOLON  Expression SEMICOLON
+    """
+    if(type(p) is Node):
+        line_num = max(p[1].line_num, p.lineno(1))
+    else:
+        line_num = p.lineno(1)
+    p[0] = Node(
+        name="ForClause", val="", type="", children=[], line_num=line_num, update=[]
+    )
+    p[0].ast = add_edges(p)
+
+    global _loop_depth
+    global _break_label
+    global _continue_label
+
+    if len(p) == 4:
+        p[0].code.append([_continue_label[_loop_depth]])
+        p[0].update = p[3].code
+    else:
+        p[0].code = p[1].code + p[3].code
+        p[0].code.append([_continue_label[_loop_depth]])
+        # p[0].code.append(p[3].code)
+        p[0].code.append(
+            ["if", p[3].place, "==", "False", "goto", _break_label[_loop_depth]]
+        )
+
+
+def p_ForClause_3(p):
+    """ForClause :            SEMICOLON  Expression SEMICOLON SimpleStmt
+    |            SEMICOLON  Expression SEMICOLON
+    """
+    if(type(p) is Node):
+        line_num = max(p[1].line_num, p.lineno(1))
+    else:
+        line_num = p.lineno(1)
+    p[0] = Node(
+        name="ForClause", val="", type="", children=[], line_num=line_num, update=[]
+    )
+    p[0].ast = add_edges(p)
+
+    global _loop_depth
+    global _break_label
+    global _continue_label
+
+    if len(p) == 4:
+        p[0].code.append([_continue_label[_loop_depth]])
+        p[0].code += p[2].code
+        p[0].code.append(
+            ["if", p[2].place, "==", "False", "goto", _break_label[_loop_depth]]
+        )
+
+    else:
+        p[0].code.append([_continue_label[_loop_depth]])
+        p[0].code += p[2].code
+        p[0].code.append(
+            ["if", p[2].place, "==", "False", "goto", _break_label[_loop_depth]]
+        )
+        p[0].update = p[4].code
+
+
+# def p_ForClause(p):
+#     """ForClause :  SimpleStmt SEMICOLON Expression SEMICOLON SimpleStmt
+#     | SimpleStmt SEMICOLON             SEMICOLON SimpleStmt
+#     | SimpleStmt SEMICOLON             SEMICOLON
+#     |            SEMICOLON             SEMICOLON SimpleStmt
+#     | SimpleStmt SEMICOLON  Expression SEMICOLON
+#     |            SEMICOLON  Expression SEMICOLON SimpleStmt
+#     |            SEMICOLON  Expression SEMICOLON
+#     |            SEMICOLON             SEMICOLON
+#     """
+#     line_num = max(p[1].line_num, p.lineno(1))
+#     p[0] = Node(name="ForClause", val="", type="", children=[], line_num=line_num)
+#     p[0].ast = add_edges(p)
 
 
 def p_error(p):
     if p:
         print_compilation_error(
-            "Syntax error at token ", p.type, "  Line Number  ", p.lineno
+            "Syntax error at token " + str(p.type) + "  Line Number  " + str(p.lineno)
         )
         # Just discard the token and tell the parser it's okay.
-        parser.errok()
+        # parser.errok()
     else:
         print_compilation_error("Syntax error at EOF")
 
 
 def dump_symbol_table():
-    with open(SYMBOL_TABLE_DUMP_FILENAME, "w") as f:
+    global _symbol_table_dump_filename
+
+    with open(_symbol_table_dump_filename, "w") as f:
         f.write(
-            "Scope, Name, Val, Line Num, Type, Children, Array, Function, Level, Field List\n"
+            "Scope, Name, Size, Val, Line Num, Type, Children, Array, Function, Level, Field List\n"
         )
 
     for i in range(_next_scope):
@@ -2644,14 +4217,14 @@ def dump_symbol_table():
             for key in SYMBOL_TABLE[i].keys():
                 temp_list[key] = SYMBOL_TABLE[i][key]
 
-            with open(SYMBOL_TABLE_DUMP_FILENAME, "a") as f:
+            with open(_symbol_table_dump_filename, "a") as f:
                 for j in range(len(temp_list)):
                     values = list(temp_list.values())[j]
 
                     keys = list(temp_list.keys())[j]
 
                     f.write(
-                        f'{i}, {keys}, {values.get("val", "")}, {values.get("line_num", "")}, {values.get("type", "")}, {values.get("children", "")}, {values.get("array", "")}, {values.get("func", "")}, {values.get("level", "")}, {values.get("field_list", "")}\n'
+                        f'{i}, {keys}, {values.get("val", "")}, {values.get("size", "")}, {values.get("line_num", "")}, {values.get("type", "")}, {values.get("children", "")}, {values.get("array", "")}, {values.get("func", "")}, {values.get("level", "")}, {values.get("field_list", "")}\n'
                     )
 
 
@@ -2659,58 +4232,78 @@ parser = yacc.yacc()
 
 
 def main():
-    try:
-        argparser = argparse.ArgumentParser(
-            description="A parser for the source language that outputs the Parser Automaton in a graphical form."
-        )
-        argparser.add_argument("filepath", type=str, help="Path for your go program")
-        args = argparser.parse_args()
+    # try:
+    global _3ac_code
+    global _symbol_table_dump_filename
+    global _ast_filename
+    global _ast_plot_filename
+    global _ircode_filename
 
-        with open(args.filepath) as f:
-            program = f.read().rstrip() + "\n"
+    argparser = argparse.ArgumentParser(
+        description="A parser for the source language that outputs the Parser Automaton in a graphical form."
+    )
+    argparser.add_argument("filepath", type=str, help="Path for your go program")
+    args = argparser.parse_args()
 
-        print("> Parser initiated")
+    go_filename = os.path.basename(args.filepath)
+    if "." in go_filename:
+        go_filename = go_filename.split(".")[0]
 
-        print("> AST dotfile generation initiated")
+    _symbol_table_dump_filename = SYMBOL_TABLE_DUMP_FILENAME.format(go_filename)
+    _ast_filename = AST_FILENAME.format(go_filename)
+    _ast_plot_filename = AST_PLOT_FILENAME.format(go_filename)
+    _ircode_filename = IRCODE_FILENAME.format(go_filename)
 
-        with open(AST_FILENAME, "w") as f:
-            f.write("digraph G {")
+    with open(args.filepath) as f:
+        program = f.read().rstrip() + "\n"
 
-        parser = yacc.yacc()
-        result = parser.parse(program)
+    print("> Parser initiated")
 
-        print("> Parser ended")
+    print("> AST dotfile generation initiated")
 
-        with open(AST_FILENAME, "a") as f:
-            f.write("\n}")
+    with open(_ast_filename, "w") as f:
+        f.write("digraph G {")
 
-        print("> AST dotfile generation ended")
+    parser = yacc.yacc()
+    parser.parse(program)
 
-        print("> SYMBOL TABLE:")
-        pprint(SYMBOL_TABLE)
+    print("> Parser ended")
 
-        graphs = pydot.graph_from_dot_file(AST_FILENAME)
-        graph = graphs[0]
-        graph.write_png(AST_PLOT_FILENAME)
+    with open(_ast_filename, "a") as f:
+        f.write("\n}")
 
-        dump_symbol_table()
+    print("> AST dotfile generation ended")
 
-        print(
-            f"> Dump of the Symbol Table has been saved as '{SYMBOL_TABLE_DUMP_FILENAME}'"
-        )
-        print(f"> Dump of the AST has been saved as '{AST_FILENAME}'")
-        print(f"> Dump of the AST has been plotted in '{AST_PLOT_FILENAME}'")
+    print_success("> SYMBOL TABLE:")
+    pprint(SYMBOL_TABLE)
 
-        print_success(
-            Format.success + "Semantic Analysis done successfully" + Format.end
-        )
+    print_success("> 3AC Code")
+    pprint(_3ac_code)
 
-        return 0
+    graphs = pydot.graph_from_dot_file(_ast_filename)
+    graph = graphs[0]
+    graph.write_png(_ast_plot_filename)
 
-    except Exception as e:
-        print_failure(Format.fail + str(e) + Format.end)
+    dump_symbol_table()
 
-        return -1
+    write_ircode(_ircode_filename, _3ac_code)
+
+    print(
+        f"> Dump of the Symbol Table has been saved as '{_symbol_table_dump_filename}'"
+    )
+    print(f"> Dump of the AST has been saved as '{_ast_filename}'")
+    print(f"> Dump of the AST has been plotted in '{_ast_plot_filename}'")
+    print(f"> 3AC code has been saved in '{_ircode_filename}'")
+
+    print_success("Semantic Analysis done successfully")
+
+    return 0
+
+    # except Exception as e:
+    print_failure(e)
+
+
+# return -1
 
 
 if __name__ == "__main__":
