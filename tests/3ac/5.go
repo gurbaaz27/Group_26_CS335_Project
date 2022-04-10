@@ -1,3 +1,5 @@
+// structs and increment decrement
+
 type bed struct {
 	name    string
 	objects [4][5][6]int
@@ -30,6 +32,11 @@ type hawkeyes struct {
 func main() {
 	var house home
 	house.rooms[2][3].beds[3].name
-	// house.rooms[2][3].beds[3].objects[2][1] = [4]int{1, 2, 2, 2}
 
+	// check incdec
+	i := 0
+	i++
+
+	j := 1
+	j--
 }

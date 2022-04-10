@@ -1,3 +1,5 @@
+// for loop and operators and multilevel pointers
+
 func main() {
 
 	x := 10    //dummy value
@@ -8,7 +10,6 @@ func main() {
 
 	**ppx = **ppx + 5
 
-
 	a := 2
 	b := &a
 	c := &b
@@ -18,6 +19,12 @@ func main() {
 	*b = 1
 
 	z := 4 + **c
+
+	j := 0
+
+	for i := 0; i < 5; i++ {
+		j++
+	}
 
 	// var x [3]int
 	// x[1] = 3

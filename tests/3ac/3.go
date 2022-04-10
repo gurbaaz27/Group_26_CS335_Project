@@ -1,3 +1,5 @@
+// switch
+
 func main() {
 	var value string = "five"
 
@@ -32,7 +34,7 @@ func main() {
 	case "one":
 		a := 1
 
-	case "two", 1: // Intentional error
+	case "two":
 		a := 1
 
 	case "four", "five", "six":
