@@ -36,6 +36,7 @@ class Node:
         level: int = 0,
         ast=None,
         code: List = [],
+        update: List = [],
         place: str = "",
         dims: List = [],
         placelist: List = [],
@@ -48,7 +49,8 @@ class Node:
         self.func = func
         self.ast = ast
         self.level = level
-        self.code = code
+        self.code = []
+        self.update = update
         self.place = place
         self.dims = dims
         self.placelist = placelist

@@ -1,8 +1,8 @@
-#################
-## Milestone 3  : CS335A ##
-########################################
-## Submission Date : February 18, 2022 ##
-########################################
+###########################
+## Milestone 5 : CS335A ##
+######################################
+## Submission Date : April 10, 2022 ##
+######################################
 
 __author__ = "Group 26, CS335A"
 __filename__ = "utils.py"
@@ -11,50 +11,8 @@ __description__ = "Helper/Utility functions for compiler."
 
 import sys
 
-
-SYMBOL_TABLE_DUMP_FILENAME = "symtab.csv"
-AST_FILENAME = "ast.dot"
-AST_PLOT_FILENAME = "ast_plot.png"
-
-TOKENS_TO_IGNORE = ["{", "}", "(", ")", ";", "[", "]", ","]
-
-
-class Format:
-    """
-    Collection of ANSI escape sequences to format strings
-    """
-
-    success = "\033[32m"
-    fail = "\033[91m"
-    end = "\033[0m"
-    underline = "\033[4m"
-
-
-class Node:
-    def __init__(
-        self,
-        name="",
-        val="",
-        line_num=0,
-        type="",
-        children=[],
-        array=[],
-        func=0,
-        level=0,
-        ast=None,
-    ):
-        self.name = name
-        self.val = val
-        self.type = type
-        self.line_num = line_num
-        self.array = array
-        self.func = func
-        self.ast = ast
-        self.level = level
-        if children:
-            self.children = children
-        else:
-            self.children = []
+from constants import TOKENS_TO_IGNORE
+from classes import Format
 
 
 def ignore_lexer_literal(s):
@@ -84,3 +42,115 @@ def print_success(err: str):
 
 def print_failure(err: str):
     print(Format.fail + err + Format.end)
+
+
+def operate(op1, op, op2):
+    # Alternate :
+    # return eval(f"{op1} {op} {op2}")
+    if op[0] == "+":
+        return op1 + op2
+    if op[0] == "-":
+        return op1 - op2
+    if op[0] == "*":
+        return op1 * op2
+    if op[0] == "|":
+        return op1 | op2
+    if op[0] == "^":
+        return op1 ^ op2
+    if op[0] == "&":
+        return op1 & op2
+    if op == "==":
+        return op1 == op2
+    if op == "!=":
+        return op1 != op2
+    if op == ">=":
+        return op1 >= op2
+    if op == "<=":
+        return op1 <= op2
+    if op == "<":
+        return op1 < op2
+    if op == ">":
+        return op1 > op2
+
+
+def get_dim(type):
+    temp = type.split()
+    i = 0
+    dim = []
+    while temp[i] == "ARRAY":
+        i = i + 1
+        dim.append(int(temp[i]))
+        i = i + 1
+    return dim
+
+
+def convertible(s1, s2):
+    if s1 == s2:
+        return True
+    else:
+        if isint(s2):
+            if isint(s1):
+                return True
+            else:
+                return False
+        else:
+            if s2 == "FLOAT32" or s2 == "FLOAT64":
+                if s1 in ["FLOAT32", "FLOAT64", "floatconst"] or isint(s1):
+                    return True
+                else:
+                    return False
+
+
+def isint(s):
+    if s in [
+        "stringconst",
+        "boolconst",
+        "BOOL",
+        "STRING",
+        "floatconst",
+        "FLOAT32",
+        "FLOAT64",
+    ]:
+        return False
+    else:
+        return True
+
+
+def notcomparable(s):
+    if s in ["stringconst", "boolconst", "BOOL", "STRING"]:
+        return True
+    else:
+        return False
+
+
+def equal(s1, s2):
+    if s1 == s2:
+        return s1
+    else:
+        if not (
+            s1 in ["intconst", "floatconst", "stringconst", "boolconst"]
+            or s2 in ["intconst", "floatconst", "stringconst", "boolconst"]
+        ):
+            return ""
+
+        if s1 in ["intconst", "floatconst", "stringconst", "boolconst"]:
+            if isint(s2) and s1 == "intconst":
+                return s2
+            elif s2 in ["FLOAT32", "FLOAT64"] and s1 == "floatconst":
+                return s2
+            elif s2 == "BOOL" and s1 == "boolconst":
+                return s2
+            elif s2 == "STRING" and s1 == "stringconst":
+                return s2
+        else:
+            return equal(s2, s1)
+
+    return ""
+
+
+def write_ircode(filename : str, ircode):
+    with open(filename, "w") as f:
+        for line in ircode:
+            for word in line:
+                f.write(str(word) + " ")
+            f.write("\n")
