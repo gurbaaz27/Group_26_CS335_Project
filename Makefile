@@ -1,6 +1,10 @@
 test=1
 
 
+ir:
+	python src/parser.py tests/3ac/${test}.go
+
+
 semantic:
 	python src/parser.py tests/semantic/${test}.go
 

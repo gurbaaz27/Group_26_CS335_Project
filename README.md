@@ -37,13 +37,21 @@ Our SIT triplet is (Go, Python, MIPS).
         - `docs/parser.md`
         - `Makefile` 
 - [x] Milestone 4 : Semantic Analysis
-    - Due on: 22.03.2022
+    - Due on: 28.03.2022
     - In this milestone, you extend the project to perform semantic analysis. The goal is to convert your program into an AST Representation to be used by later stages (Intermediate and Final code generation, optimization, etc.).
     - Deliverables
         - `src/parser.py`
         - `src/utils.py`
         - `src/ast_plot.png`
         - `src/ast.dot`
+        - `Makefile`
+- [ ] Milestone 5: Activation Record and Intermediate Code Generation
+    - Due on: 10.04.2022
+    - Now that you can create AST and Symbol Table for a semantically meaningful program, it is time to generate Intermediate code (3-address code, 3AC) with support for run-time activations.
+    - Deliverables
+        - `src/parser.py`
+        - `src/utils.py`
+        - `src/classes.py`
         - `Makefile`
 
 
@@ -95,7 +103,7 @@ python src/lexer.py tests/scanner/2.go
 
 ### b. Milestone 3: Parser
 
-There are 5 test-cases present in `tests/scanner/` directory.
+There are 5 test-cases present in `tests/parser/` directory.
 To run the test cases, simply run
 
 ```bash
@@ -146,7 +154,7 @@ dot -Tpdf <test_num>.dot -o <test_num>.pdf
 
 ### c. Milestone 4: Semantic Analysis
 
-There are 5 test-cases present in `tests/scanner/` directory.
+There are 5 test-cases present in `tests/semantic/` directory.
 To run the test cases, simply run
 
 ```bash
@@ -172,6 +180,31 @@ python src/parser.py tests/semantic/2.go
 
 > __*NOTE*__ : *We have purposely added wrong semantic in 3rd testcase, which should result our semantic analyser throw an error message.*
 
+### d. Milestone 5: Activation Record and Intermediate Code Generation
+
+There are 5 test-cases present in `tests/3ac/` directory.
+To run the test cases, simply run
+
+```bash
+make ir test=<test_num>
+## For example,
+make ir test=2
+```
+
+In case no test variable is mentioned,`make` defaults to `test=1`, i.e.
+
+```bash
+make ir ## is equivalent to
+make ir test=1
+```
+
+If you do not have `make` installed, you can simply run the python script using
+
+```bash
+python src/parser.py tests/3ac/<test_num>.go ## or python3, according to your system
+## For example,
+python src/parser.py tests/3ac/2.go
+```
 
 ## iii. Group Members
 
