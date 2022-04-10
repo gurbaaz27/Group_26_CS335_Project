@@ -35,3 +35,7 @@ scanner-all:
 clean:
 	rm -rf src/parser.out
 	rm -rf src/parsetab.py
+	rm -rf *.dot
+	rm -rf *.csv
+	rm -rf *.png
+	rm -rf *.3ac
