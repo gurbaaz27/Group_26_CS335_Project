@@ -12,20 +12,22 @@ func BubbleSort(array [7]int) [7]int {
 	}
 	return array
 }
+
 func main() {
 	BubbleSort([7]int{11, 14, 3, 8, 18, 17, 43})
 
+	var x float32 = 3.2
 	var i int = 1
-    if i == 1 {
-    	j := 1
-    	if j != 1 {
-    	   k := 1
-    	} else if j == 2 {
-    	    k := 3
-    	} else {
-    	    k := 4
-    	}
-    } else if i > 1 {
-    `	k := 5
-    }
+	if i == 1 {
+		j := 1
+		if j != 1 {
+			k := 1
+		} else if j == 2 {
+			k := 3
+		} else {
+			k := 4
+		}
+	} else if i > 1 {
+		k := 5
+	}
 }

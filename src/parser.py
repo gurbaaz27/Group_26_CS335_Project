@@ -528,6 +528,10 @@ def p_LopenBrace(p):
 def p_Block(p):
     """Block : LopenBrace StatementList RIGHT_BRACE"""
     global _current_scope
+    global _global_sp
+    global _current_size
+
+    _global_sp -= _current_size[_current_scope]
     _current_scope = _parent[_current_scope]
 
     p[0] = Node(name="Block", val="", line_num=p.lineno(1), type="", children=[])
@@ -811,10 +815,12 @@ def p_ConstSpec(p):
             SYMBOL_TABLE[_current_scope][lexeme]["const"] = 1
             if p[2].type.endswith("*"):
                 SYMBOL_TABLE[_current_scope][lexeme]["size"] = 8
+                SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
                 _current_size[_current_scope] += 8
                 _global_sp += 8
             else:
                 SYMBOL_TABLE[_current_scope][lexeme]["size"] = _size[p[2].type]
+                SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
                 _current_size[_current_scope] += _size[p[2].type]
                 _global_sp += _size[p[2].type]
 
@@ -867,10 +873,12 @@ def p_ConstSpec(p):
                 typ = typ + " " + temp[i + 1]
             if typ.endswith("*"):
                 SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * 8
+                SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
                 _current_size[_current_scope] += Quant * 8
                 _global_sp += Quant * 8
             else:
                 SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * _size[typ]
+                SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
                 _current_size[_current_scope] += Quant * _size[typ]
                 _global_sp += Quant * _size[typ]
 
@@ -924,10 +932,12 @@ def p_ConstSpec(p):
             SYMBOL_TABLE[_current_scope][lexeme]["const"] = 1
             if p[3].type.endswith("*"):
                 SYMBOL_TABLE[_current_scope][lexeme]["size"] = 8
+                SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
                 _current_size[_current_scope] += 8
                 _global_sp += 8
             else:
                 SYMBOL_TABLE[_current_scope][lexeme]["size"] = _size[p[3].type]
+                SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
                 _current_size[_current_scope] += _size[p[3].type]
                 _global_sp += _size[p[3].type]
         else:
@@ -947,10 +957,12 @@ def p_ConstSpec(p):
                 typ = typ + " " + temp[i + 1]
             if typ.endswith("*"):
                 SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * 8
+                SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
                 _current_size[_current_scope] += Quant * 8
                 _global_sp += Quant * 8
             else:
                 SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * _size[typ]
+                SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
                 _current_size[_current_scope] += Quant * _size[p[3].type]
                 _global_sp += Quant * _size[p[3].type]
 
@@ -1183,10 +1195,12 @@ def p_VarSpec(p):
             SYMBOL_TABLE[_current_scope][lexeme]["type"] = p[2].type
             if p[2].type.endswith("*"):
                 SYMBOL_TABLE[_current_scope][lexeme]["size"] = 8
+                SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
                 _current_size[_current_scope] += 8
                 _global_sp += 8
             else:
                 SYMBOL_TABLE[_current_scope][lexeme]["size"] = _size[p[2].type]
+                SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
                 _current_size[_current_scope] += _size[p[2].type]
                 _global_sp += _size[p[2].type]
 
@@ -1239,10 +1253,12 @@ def p_VarSpec(p):
                 typ = typ + " " + temp[i + 1]
             if typ.endswith("*"):
                 SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * 8
+                SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
                 _current_size[_current_scope] += 8
                 _global_sp += 8
             else:
                 SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * _size[typ]
+                SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
                 _current_size[_current_scope] += Quant * _size[typ]
                 _global_sp += Quant * _size[typ]
 
@@ -1294,10 +1310,12 @@ def p_VarSpec(p):
             SYMBOL_TABLE[_current_scope][lexeme]["type"] = p[3].type
             if p[3].type.endswith("*"):
                 SYMBOL_TABLE[_current_scope][lexeme]["size"] = 8
+                SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
                 _current_size[_current_scope] += 8
                 _global_sp += 8
             else:
                 SYMBOL_TABLE[_current_scope][lexeme]["size"] = _size[p[3].type]
+                SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
                 _current_size[_current_scope] += _size[p[3].type]
                 _global_sp += _size[p[3].type]
         else:
@@ -1317,10 +1335,12 @@ def p_VarSpec(p):
                 typ = typ + " " + temp[i + 1]
             if typ.endswith("*"):
                 SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * 8
+                SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
                 _current_size[_current_scope] += Quant * 8
                 _global_sp += Quant * 8
             else:
                 SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * _size[typ]
+                SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
                 _current_size[_current_scope] += Quant * _size[typ]
                 _global_sp += Quant * _size[typ]
 
@@ -1332,10 +1352,12 @@ def p_VarSpec(p):
             SYMBOL_TABLE[_current_scope][lexeme]["type"] = p[2].type
             if p[2].type.endswith("*"):
                 SYMBOL_TABLE[_current_scope][lexeme]["size"] = 8
+                SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
                 _current_size[_current_scope] += 8
                 _global_sp += 8
             else:
                 SYMBOL_TABLE[_current_scope][lexeme]["size"] = _size[p[2].type]
+                SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
                 _current_size[_current_scope] += _size[p[2].type]
                 _global_sp += _size[p[2].type]
         else:
@@ -1356,10 +1378,12 @@ def p_VarSpec(p):
                 typ = typ + " " + temp[i + 1]
             if typ.endswith("*"):
                 SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * 8
-                _current_size[_current_scope] += Quant * 9
+                SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
+                _current_size[_current_scope] += Quant * 8
                 _global_sp += Quant * 8
             else:
                 SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * _size[typ]
+                SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
                 _current_size[_current_scope] += Quant * _size[typ]
                 _global_sp += Quant * _size[typ]
 
@@ -3427,10 +3451,12 @@ def p_ShortVarDecl(p):
             SYMBOL_TABLE[_current_scope][lexeme]["type"] = p[3].type
             if p[3].type.endswith("*"):
                 SYMBOL_TABLE[_current_scope][lexeme]["size"] = 8
+                SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
                 _current_size[_current_scope] += 8
                 _global_sp += 8
             else:
                 SYMBOL_TABLE[_current_scope][lexeme]["size"] = _size[p[3].type]
+                SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
                 _current_size[_current_scope] += _size[p[3].type]
                 _global_sp += _size[p[3].type]
 
@@ -3451,10 +3477,12 @@ def p_ShortVarDecl(p):
                 typ = typ + " " + temp[i + 1]
             if typ.endswith("*"):
                 SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * 8
+                SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
                 _current_size[_current_scope] += Quant * 8
                 _global_sp += Quant * 8
             else:
                 SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * _size[typ]
+                SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
                 _current_size[_current_scope] += Quant * _size[typ]
                 _global_sp += Quant * _size[typ]
             SYMBOL_TABLE[_current_scope][lexeme]["array"] = dim
@@ -3473,6 +3501,10 @@ def p_func_decl(p):
     p[0].ast = add_edges(p)
 
     global _current_scope
+    global _current_size
+    global _global_sp
+
+    _global_sp -= _current_size[_current_scope]
     _current_scope = _parent[_current_scope]
 
     p[0].code = p[4].code
@@ -3500,6 +3532,9 @@ def p_funcBegin(p):
     global _current_scope
     global _next_scope
     global _current_size
+    global _global_sp
+
+    _global_sp = 0
 
     _parent[_next_scope] = _current_scope
     _current_scope = _next_scope
@@ -3686,10 +3721,9 @@ def p_IfStmt_1(p):
 
     global _global_sp
     global _current_scope
+    global _parent
 
-    _global_sp -= _current_size[
-        _current_scope
-    ]  # TODO: whatever we are using for size of scope
+    _global_sp -= _current_size[_current_scope] 
     _current_scope = _parent[_current_scope]
     p[0].ast = add_edges(p)
 
@@ -3740,9 +3774,7 @@ def p_IfStmt_2(p):
     global _global_sp
     global _current_scope
 
-    _global_sp -= _current_size[
-        _current_scope
-    ]  # TODO: whatever we are using for size of scope
+    _global_sp -= _current_size[_current_scope] 
     _current_scope = _parent[_current_scope]
     p[0].ast = add_edges(p)
 
@@ -3782,9 +3814,7 @@ def p_IfStmt_3(p):
     global _global_sp
     global _current_scope
 
-    _global_sp -= _current_size[
-        _current_scope
-    ]  # TODO: whatever we are using for size of scope
+    _global_sp -= _current_size[_current_scope]
     _current_scope = _parent[_current_scope]
     p[0].ast = add_edges(p)
 
@@ -3977,6 +4007,10 @@ def p_ExprCaseClause(p):
     p[0].ast = add_edges(p)
 
     global _current_scope
+    global _current_size
+    global _global_sp
+
+    _global_sp -= _current_size[_current_scope]
     _current_scope = _parent[_current_scope]
 
 
@@ -3987,6 +4021,10 @@ def p_ForStmt_1(p):
     p[0] = Node(name="ForStmt", val="", type="", children=[], line_num=p.lineno(1))
 
     global _current_scope
+    global _current_size
+    global _global_sp
+
+    _global_sp -= _current_size[_current_scope]
     _current_scope = _parent[_current_scope]
     p[0].ast = add_edges(p)
 
@@ -4021,6 +4059,10 @@ def p_ForStmt_2(p):
     global _current_scope
     global _break_label
     global _continue_label
+    global _current_size
+    global _global_sp
+
+    _global_sp -= _current_size[_current_scope]
     _current_scope = _parent[_current_scope]
     p[0].ast = add_edges(p)
 
@@ -4208,7 +4250,7 @@ def dump_symbol_table():
 
     with open(_symbol_table_dump_filename, "w") as f:
         f.write(
-            "Scope, Name, Size, Val, Line Num, Type, Children, Array, Function, Level, Field List\n"
+            "Scope, Name, Size, Offset, Val, Line Num, Type, Children, Array, Function, Level, Field List\n"
         )
 
     for i in range(_next_scope):
@@ -4224,7 +4266,7 @@ def dump_symbol_table():
                     keys = list(temp_list.keys())[j]
 
                     f.write(
-                        f'{i}, {keys}, {values.get("val", "")}, {values.get("size", "")}, {values.get("line_num", "")}, {values.get("type", "")}, {values.get("children", "")}, {values.get("array", "")}, {values.get("func", "")}, {values.get("level", "")}, {values.get("field_list", "")}\n'
+                        f'{i}, {keys}, {values.get("size", "")}, {values.get("offset", "")}, {values.get("val", "")}, {values.get("line_num", "")}, {values.get("type", "")}, {values.get("children", "")}, {values.get("array", "")}, {values.get("func", "")}, {values.get("level", "")}, {values.get("field_list", "")}\n'
                     )
 
 
