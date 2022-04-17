@@ -9,6 +9,8 @@ Our SIT triplet is (Go, Python, MIPS).
     - [Scanner](#a-milestone-2-scanner)
     - [Parser](#b-milestone-3-parser)
     - [Semantic Analysis](#c-milestone-4-semantic-analysis)
+    - [Activation Record and Intermediate Code Generation](#d-milestone-5-activation-record-and-intermediate-code-generation)
+    - [The Destination](#e-milestone-6-the-destination)
 3. [Group Members](#iii-group-members)
 4. [Acknowledgement](#iv-acknowledgement)
 
@@ -45,13 +47,19 @@ Our SIT triplet is (Go, Python, MIPS).
         - `src/ast_plot.png`
         - `src/ast.dot`
         - `Makefile`
-- [ ] Milestone 5: Activation Record and Intermediate Code Generation
+- [x] Milestone 5: Activation Record and Intermediate Code Generation
     - Due on: 10.04.2022
     - Now that you can create AST and Symbol Table for a semantically meaningful program, it is time to generate Intermediate code (3-address code, 3AC) with support for run-time activations.
     - Deliverables
         - `src/parser.py`
         - `src/utils.py`
         - `src/classes.py`
+        - `Makefile`
+- [ ] Milestone 6: The Destination
+    - Due on: 22.04.2022
+    - In this last part of the project, you will generate code for the target assembly. 
+    - Deliverables
+        - `src/parser.py`
         - `Makefile`
 
 
@@ -204,6 +212,32 @@ If you do not have `make` installed, you can simply run the python script using
 python src/parser.py tests/3ac/<test_num>.go ## or python3, according to your system
 ## For example,
 python src/parser.py tests/3ac/2.go
+```
+
+### e. Milestone 6: The Destination
+
+There are 5 test-cases present in `tests/final/` directory.
+To run the test cases, simply run
+
+```bash
+make final test=<test_num>
+## For example,
+make final test=2
+```
+
+In case no test variable is mentioned,`make` defaults to `test=1`, i.e.
+
+```bash
+make final ## is equivalent to
+make final test=1
+```
+
+If you do not have `make` installed, you can simply run the python script using
+
+```bash
+python src/parser.py tests/final/<test_num>.go ## or python3, according to your system
+## For example,
+python src/parser.py tests/final/2.go
 ```
 
 ## iii. Group Members
