@@ -34,6 +34,9 @@ from utils import (
     isint,
     notcomparable,
     equal,
+    get_store_instruction,
+    equalarray,
+    getsize,
 )
 import pydot
 import copy
@@ -44,6 +47,9 @@ import copy
 
 ## file io related
 
+_main_declared = False
+_global_variables = {}
+
 _symbol_table_dump_filename = ""
 _ast_filename = ""
 _ast_plot_filename = ""
@@ -53,8 +59,9 @@ _ircode_filename = ""
 
 SYMBOL_TABLE = []
 SYMBOL_TABLE.append({})
+array_init_list = []
 
-_3ac_code = ""
+_mips_code = ""
 
 _global_sp = 0
 _current_size = {}
@@ -83,6 +90,7 @@ _current_number = 0
 
 _label_counter = 0
 _token_counter = 0
+_token_f_counter = 0
 
 _offset = {}
 _size = {
@@ -145,6 +153,14 @@ precedence = (
 )
 
 
+def find_addr_of_variable(a, b):
+    pass
+
+
+def get_pointer_for_stringconst(a, b):
+    pass
+
+
 def DSU_create(i):
     _DSU_parent[i] = i
     _DSU_urank[i] = 1
@@ -176,6 +192,16 @@ def get_token():
     global _token_counter
     _token_counter += 1
     return "t" + str(_token_counter - 1)
+
+
+def get_f_token():
+    global _token_f_counter
+    _token_f_counter += 1
+    return "f" + str(_token_f_counter - 1)
+
+
+def get_id_token():
+    return "*" + get_token()
 
 
 def generate_label():
@@ -258,7 +284,7 @@ def declared_indentifier(id, lineno):
             return curscp
 
     print_compilation_error(
-        str(lineno) + "COMPILATION ERROR: unary_expression " + str(id) + " not declared"
+        f"Compilation Error at Line {lineno}: Identifier {id} not declared"
     )
 
 
@@ -276,10 +302,10 @@ def find_scope(id, lineno):
 
 def p_start(p):
     """start : SourceFile"""
-    global _3ac_code
+    global _mips_code
 
     p[0] = p[1]
-    _3ac_code = p[0].code
+    _mips_code = p[0].code
 
 
 def p_empty(p):
@@ -328,7 +354,7 @@ def p_TypeName_1(p):
 def p_TypeName_2(p):
     """TypeName : IDENTIFIER"""
     lexeme = ""
-    if p[1] is tuple:
+    if type(p[1]) is tuple:
         lexeme = p[1][0]
     else:
         lexeme = p[1]
@@ -402,9 +428,7 @@ def p_ArrayLength(p):
     )
     if p[0].type != "intconst":
         print_compilation_error(
-            "Compilation Error: Array index at line "
-            + str(p.lineno(1))
-            + " is not of compatible type",
+            f"Compilation Error at line {p.lineno(1)}: Array index is not of compatible type",
         )
 
     p[0].ast = add_edges(p)
@@ -477,7 +501,7 @@ def p_Fields(p):
 def p_FieldDecl(p):
     """FieldDecl : IDENTIFIER Type"""
     lexeme = ""
-    if p[1] is tuple:
+    if type(p[1]) is tuple:
         lexeme = p[1][0]
     else:
         lexeme = p[1]
@@ -597,19 +621,14 @@ def p_ReturnStmt(p):
 
         if _current_function_return_type != "void":
             print_compilation_error(
-                "COMPILATION ERROR at line "
-                + str(p.lineno(1))
-                + ": function return type is not void"
+                f"Compilation Error at line {p.lineno(1)}: Function return type is not void"
             )
 
     else:
 
         if p[2].type != "" and _current_function_return_type != p[2].type:
             print_compilation_error(
-                "COMPLIATION ERROR at line "
-                + str(p.lineno(1))
-                + ": function return type is not "
-                + str(p[2].type)
+                f"Compilation Error at line {p.lineno(1)}: Function return type is not {p[2].type}"
             )
 
         p[0] = Node(
@@ -630,18 +649,18 @@ def p_BreakStmt(p):
     p[0].ast = add_edges(p)
     if p[2].type != "intconst":
         print_compilation_error(
-            "COMPILATION ERROR at line "
-            + str(p[0].line_num)
-            + "argument to  break should be a constant"
+            f"Compilation Error at line {p[0].line_num}: Break argument should be none or an integer constant"
         )
 
     if _loop_depth == 0 or _switch_depth == 0:
-        print_compilation_error(str(p[0].line_num) + " : break not inside loop")
+        print_compilation_error(
+            f"Compilation Error at line {p[0].line_num}: Break is not inside a loop"
+        )
 
     if len(p) == 3:
         if p[2].place > _loop_depth:
             print_compilation_error(
-                str(p[0].line_num) + " : breaking index more than number of loop"
+                f"Compilation Error at line {p[0].line_num}: Break argument exceeds the number of loops"
             )
 
         p[0].code = [["goto", _break_label[_loop_depth + 1 - int(p[2].place)]]]
@@ -659,7 +678,9 @@ def p_ContinueStmt(p):
     p[0].ast = add_edges(p)
 
     if _loop_depth == 0:
-        print_compilation_error(str(p[0].line_num) + " : continue not inside loop")
+        print_compilation_error(
+            f"Compilation Error at line {p[0].line_num}: Continue is not inside a loop"
+        )
 
     p[0].code = [["goto", _continue_label[_loop_depth]]]
 
@@ -706,11 +727,57 @@ def p_TopLevelDeclList_2(p):
     p[0].ast = add_edges(p)
 
 
+# def p_ImportSpec(p):
+#     """ImportSpec : DOT STRINGCONST
+#     | IDENTIFIER STRINGCONST
+#     | empty STRINGCONST"""
+#     p[0] = Node(name="ImportSpec", val="", type="", line_num=p.lineno(1), children=[])
+#     p[0].ast = add_edges(p)
+
+
+# def p_ImportSpecList_1(p):
+#     """ImportSpecList : ImportSpec EOS ImportSpecList"""
+#     p[0] = Node(
+#         name="ImportSpecList", val="", type="", line_num=p[1].line_num, children=[]
+#     )
+#     p[0].ast = add_edges(p)
+
+
+# def p_ImportSpecList_2(p):
+#     """ImportSpecList : empty"""
+#     p[0] = Node(name="ImportSpecList", val="", type="", children=[])
+#     p[0].ast = add_edges(p)
+
+
+# def p_ImportDecl(p):
+#     """ImportDecl : IMPORT LEFT_PARENTH ImportSpecList RIGHT_PARENTH
+#     | IMPORT ImportSpec"""
+#     p[0] = Node(name="ImportDecl", val="", type="", line_num=p.lineno(1), children=[])
+#     p[0].ast = add_edges(p)
+
+
+# def p_ImportDeclList_1(p):
+#     """ImportDeclList : ImportDecl EOS ImportDeclList"""
+#     p[0] = Node(
+#         name="ImportDeclList", val="", type="", line_num=p[1].line_num, children=[]
+#     )
+#     p[0].ast = add_edges(p)
+
+
+# def p_ImportDeclList_2(p):
+#     """ImportDeclList : empty"""
+#     p[0] = Node(name="ImportDeclList", val="", type="", children=[])
+#     p[0].ast = add_edges(p)
+
+
 def p_SourceFile(p):
-    """SourceFile : TopLevelDeclList"""
-    p[0] = Node(name="SourceFile", val="", type="", line_num=p[1].line_num, children=[])
+    """SourceFile : PACKAGE IDENTIFIER TopLevelDeclList"""
+    # """SourceFile : PACKAGE IDENTIFIER EOS ImportDeclList TopLevelDeclList"""
+    global _global_variables
+    p[0] = Node(name="SourceFile", val="", type="", line_num=p.lineno(1), children=[])
     p[0].ast = add_edges(p)
-    p[0].code = p[1].code
+    p[0].code = [[".text", ".globl main"]]
+    p[0].code += p[5].code
 
 
 ## 1. ConstDecl
@@ -728,29 +795,21 @@ def p_ConstSpec(p):
     global _current_size
 
     lexeme = ""
-    if p[1] is tuple:
+    if type(p[1]) is tuple:
         lexeme = p[1][0]
     else:
         lexeme = p[1]
     if lexeme in SYMBOL_TABLE[_current_scope].keys():
         print_compilation_error(
-            "COMPILATION ERROR at line "
-            + str(p.lineno(1))
-            + " : "
-            + lexeme
-            + " already declared "
+            f"Compilation Error at line {p.lineno(1)}: {lexeme} is already declared"
         )
 
     if len(p) == 5:
         if p[2].type != p[4].type:
 
             if p[4].type not in ["intconst", "floatconst", "stringconst", "boolconst"]:
-
                 print_compilation_error(
-                    "COMPILATION ERROR at line "
-                    + str(p.lineno(1))
-                    + " : "
-                    + "Expression and specified type do not match"
+                    f"Compilation Error at line {p.lineno(1)}: RHS expression is not of type constant"
                 )
 
             elif (
@@ -770,43 +829,29 @@ def p_ConstSpec(p):
                 and p[4].type != "intconst"
             ):
                 print_compilation_error(
-                    "COMPILATION ERROR at line "
-                    + str(p.lineno(1))
-                    + " : "
-                    + "Expression and specified type do not match"
+                    f"Compilation Error at line {p.lineno(1)}: Cannot use expression of type {p[4].type} in an integer constant declaration"
                 )
 
             elif p[2].type in ["FLOAT32", "FLOAT64"] and not (
                 p[4].type == "intconst" or p[4].type == "floatconst"
             ):
                 print_compilation_error(
-                    "COMPILATION ERROR at line "
-                    + str(p.lineno(1))
-                    + " : "
-                    + "Expression and specified type do not match"
+                    f"Compilation Error at line {p.lineno(1)}: Cannot use expression of type {p[4].type} in a floating constant declaration"
                 )
+
             elif p[2].type == "STRING" and p[4].type != "stringconst":
                 print_compilation_error(
-                    "COMPILATION ERROR at line "
-                    + str(p.lineno(1))
-                    + " : "
-                    + "Expression and specified type do not match"
+                    f"Compilation Error at line {p.lineno(1)}: Cannot use expression of type {p[4].type} in a string constant declaration"
                 )
 
             elif p[2].type == "BOOL" and p[4].type != "boolconst":
                 print_compilation_error(
-                    "COMPILATION ERROR at line "
-                    + str(p.lineno(1))
-                    + " : "
-                    + "Expression and specified type do not match"
+                    f"Compilation Error at line {p.lineno(1)}: Cannot use expression of type {p[4].type} in a boolean constant declaration"
                 )
 
             elif p[2].type.startswith("ARRAY"):
                 print_compilation_error(
-                    "COMPILATION ERROR at line "
-                    + str(p.lineno(1))
-                    + " : "
-                    + "Expression and specified type do not match"
+                    f"Compilation Error at line {p.lineno(1)}: Cannot declare an array constant"
                 )
 
         if not p[2].type.startswith("ARRAY"):
@@ -825,7 +870,7 @@ def p_ConstSpec(p):
                 _global_sp += _size[p[2].type]
 
             p[0].code = p[4].code
-            if p[2].type.endswith("*") or p[2].type in [
+            if p[4].type.endswith("*") or p[4].type in [
                 "INT",
                 "INT8",
                 "INT16",
@@ -838,29 +883,115 @@ def p_ConstSpec(p):
                 "UINT64",
                 "BOOL",
             ]:
-                p[0].code.append(["int_copy", lexeme, p[4].place])
-            elif p[2].type in ["FLOAT32", "FLOAT64"]:
-                p[0].code.append(["float_copy", lexeme, p[4].place])
-            elif p[2].type in ["STRING"]:
-                p[0].code.append(["string_copy", lexeme, p[4].place])
+
+                temp = _current_scope
+                p[0].place = get_id_token()
+                p[0].place += "_" + str(SYMBOL_TABLE[temp][lexeme]["size"])
+                p[0].code.append(find_addr_of_variable(lexeme, p[0].place))
+                p[0].code.append(
+                    [
+                        get_store_instruction(p[4].type),
+                        p[4].place,
+                        "(" + p[0].place[1:] + ")",
+                    ]
+                )
+
+            elif p[4].type in ["FLOAT32", "FLOAT64"]:
+                temp = _current_scope
+                p[0].place = get_id_token()
+                p[0].place += "_" + str(SYMBOL_TABLE[temp][lexeme]["size"])
+                p[0].code.append(find_addr_of_variable(lexeme, p[0].place))
+                p[0].code.append(["s.s", p[4].place, "(" + p[0].place[1:] + ")"])
+            elif p[4].type in ["STRING"]:
+                str_len_reg = get_token()
+                ptr_reg = get_token()
+                p[0].code.append(["move", ptr_reg, p[4].place])
+                p[0].code.append(["lw", str_len_reg, "(" + ptr_reg + ")"])
+                p[0].code.append(["addi", str_len_reg, str_len_reg, 4])
+                new_reg = get_token()
+                p[0].code.append(["heap_mem", new_reg, str_len_reg])
+
+                p[0].place = get_id_token()
+                temp = _current_scope
+                p[0].place += "_" + str(SYMBOL_TABLE[temp][lexeme]["size"])
+                p[0].code.append(find_addr_of_variable(lexeme, p[0].place))
+                p[0].code.append(["sw", new_reg, "(" + p[0].place[1:] + ")"])
+                p[0].code.append(["addi", str_len_reg, str_len_reg, -4])
+                p[0].code.append(["sw", str_len_reg, "(" + new_reg + ")"])
+                p[0].code.append(["addi", new_reg, new_reg, 4])
+                p[0].code.append(["addi", ptr_reg, ptr_reg, 4])
+                temp_reg = get_token()
+                # TODO for loop to be inserted here  number of iterations are in str_len_reg
+
+                temp_label = generate_label()
+                temp_label2 = generate_label()
+
+                p[0].code.append(temp_label)
+                p[0].code.append(["beq", str_len_reg, "$0", temp_label2])
+                p[0].code.append(["addi", str_len_reg, str_len_reg, -1])
+                p[0].code.append(["lb", temp_reg, "(" + ptr_reg + ")"])
+                p[0].code.append(["sb", temp_reg, "(" + new_reg + ")"])
+                p[0].code.append(["addi", new_reg, new_reg, 1])
+                p[0].code.append(["addi", ptr_reg, ptr_reg, 1])
+                p[0].code.append(["j", temp_label])
+                p[0].code.append(temp_label2)
+
             elif p[4].type == "intconst":
-                p[0].code.append(["int_copy_immediate", lexeme, p[4].place])
+                temp = _current_scope
+                p[0].place = get_id_token()
+                p[0].place += "_" + str(SYMBOL_TABLE[temp][lexeme]["size"])
+                p[0].code.append(find_addr_of_variable(lexeme, p[0].place))
+                p[0].code.append(
+                    [
+                        get_store_instruction(p[4].type),
+                        p[4].place,
+                        "(" + p[0].place[1:] + ")",
+                    ]
+                )
             elif p[4].type == "floatconst":
-                p[0].code.append(["float_copy_immediate", lexeme, p[4].place])
+                temp = _current_scope
+                p[0].place = get_id_token()
+                p[0].place += "_" + str(SYMBOL_TABLE[temp][lexeme]["size"])
+                p[0].code.append(find_addr_of_variable(lexeme, p[0].place))
+                p[0].code.append(["s.s", p[4].place, "(" + p[0].place[1:] + ")"])
             elif p[4].type == "boolconst":
-                if p[4].place == "True":
-                    p[0].code.append(["load immediate", lexeme, "1"])
-                else:
-                    p[0].code.append(["load immediate", lexeme, "0"])
+                temp = _current_scope
+                p[0].place = get_id_token()
+                p[0].place += "_" + str(SYMBOL_TABLE[temp][lexeme]["size"])
+                p[0].code.append(find_addr_of_variable(lexeme, p[0].place))
+                p[0].code.append(
+                    [
+                        get_store_instruction(p[4].type),
+                        p[4].place,
+                        "(" + p[0].place[1:] + ")",
+                    ]
+                )
             elif p[4].type == "stringconst":
-                p[0].code.append(["string_copy_immediate", lexeme, p[4].place])
+                str_len = len(p[4].val) + 4
+                new_reg = get_token()
+                p[0].code.append(["heap_mem_immediate", new_reg, str_len])
+                temp = _current_scope
+                p[0].place = get_id_token()
+                p[0].place += "_" + str(SYMBOL_TABLE[temp][lexeme]["size"])
+                p[0].code.append(find_addr_of_variable(lexeme, p[0].place))
+                p[0].code.append(["sw", new_reg, "(" + p[0].place[1:] + ")"])
+
+                anot_temp = get_token()
+                p[0].code.append(["li", anot_temp, str_len - 4])
+                p[0].code.append(["sw", anot_temp, "(" + new_reg + ")"])
+                p[0].code.append(["addi", new_reg, new_reg, 4])
+                temp_reg = get_token()
+                for i in range(str_len - 8):
+                    p[0].code.append(["li", temp_reg, p[4].val[i]])
+                    p[0].code.append(["sb", temp_reg, "(" + new_reg + ")"])
+                    p[0].code.append(["addi", new_reg, new_reg, 1])
 
         else:
             # Pass complete array string
             SYMBOL_TABLE[_current_scope][lexeme] = {}
             SYMBOL_TABLE[_current_scope][lexeme]["type"] = p[2].type
             i = 0
-            temp = p[3].type.split()
+            temp = p[2].type.split()
             dim = []
             Quant = 1
             while temp[i] == "ARRAY":
@@ -885,6 +1016,38 @@ def p_ConstSpec(p):
             SYMBOL_TABLE[_current_scope][lexeme]["array"] = dim
             SYMBOL_TABLE[_current_scope][lexeme]["const"] = 1
 
+            if len(array_init_list) != 0:
+                temp = _current_scope
+                p[0].place = get_id_token()
+                p[0].place += "_" + str(SYMBOL_TABLE[temp][lexeme]["size"])
+                p[0].code.append(find_addr_of_variable(lexeme, p[0].place))
+                if typ != "STRING":
+                    for i in range(len(array_init_list)):
+                        if typ in ["FLOAT32", "FLOAT64"]:
+                            anot_temp = get_f_token()
+                            p[0].code.append(["li.s", anot_temp, array_init_list[i]])
+                            p[0].code.append(
+                                ["s.s", anot_temp, "(" + p[0].place[1:] + ")"]
+                            )
+                        else:
+                            anot_temp = get_token()
+                            p[0].code.append(["li", anot_temp, array_init_list[i]])
+                            p[0].code.append(
+                                [
+                                    get_store_instruction(typ),
+                                    anot_temp,
+                                    "(" + p[0].place[1:] + ")",
+                                ]
+                            )
+                        p[0].code.append(
+                            ["addi", p[0].place[1:], p[0].place[1:], _size[typ]]
+                        )
+                        array_init_list = []
+                else:
+                    print_compilation_error(
+                        f"Compilation Error at line {p.lineno(1)}: Array of strings not supported"
+                    )
+    # TODO:
     elif len(p) == 4:
         if not p[3].type.startswith("ARRAY"):
             p[0].code = p[3].code
@@ -1020,7 +1183,7 @@ def p_AliasDecl(p):
 def p_TypeDef(p):
     """TypeDef : IDENTIFIER Type"""
     lexeme = ""
-    if p[1] is tuple:
+    if type(p[1]) is tuple:
         lexeme = p[1][0]
     else:
         lexeme = p[1]
@@ -1029,10 +1192,7 @@ def p_TypeDef(p):
     temp = p[2].type.split()
     if temp[0] != "STRUCT":
         print_compilation_error(
-            "COMPILATION ERROR at line "
-            + str(p[2].line_num)
-            + " : "
-            + "Incorrect struct type specification"
+            f"Compilation Error at line {p[2].line_num}: Incorrect specification for struct type"
         )
 
     sym = "struct " + lexeme
@@ -1044,13 +1204,9 @@ def p_TypeDef(p):
     while i < len(temp):
         if temp[i] in names:
             print_compilation_error(
-                "COMPILATION ERROR at line "
-                + str(p[2].line_num)
-                + " : "
-                + "Name "
-                + temp[i]
-                + " Already declared"
+                f"Compilation Error at line {p[2].line_num}: Name {temp[i]} is already declared"
             )
+
         curr = []
         curr.append(temp[i])
         names.append(temp[i])
@@ -1104,18 +1260,14 @@ def p_VarSpec(p):
     global _current_size
 
     lexeme = ""
-    if p[1] is tuple:
+    if type(p[1]) is tuple:
         lexeme = p[1][0]
     else:
         lexeme = p[1]
 
     if lexeme in SYMBOL_TABLE[_current_scope].keys():
         print_compilation_error(
-            "COMPILATION ERROR at line "
-            + str(p.lineno(1))
-            + " : "
-            + lexeme
-            + " already declared "
+            f"Compilation Error at line {p.lineno(1)}: {lexeme} is already declared"
         )
 
     p[0] = Node(name="VarSpec", val="", type="", line_num=p.lineno(1), children=[])
@@ -1124,9 +1276,16 @@ def p_VarSpec(p):
     if len(p) == 5:
         if p[2].type != p[4].type:
             if p[4].type not in ["intconst", "floatconst", "stringconst", "boolconst"]:
+                # print_compilation_error(
+                #     f"Compilation Error at line {p.lineno(1)}: RHS expression is not of type constant"
+                # )
+
+                # print_compilation_error(
+                #     f"Compilation Error at line {p.lineno(1)}: Cannot use expression of type {p[4].type} in an integer constant declaration"
+                # )
 
                 print_compilation_error(
-                    "COMPILATION ERROR at line "
+                    "Compilation Error at line "
                     + str(p.lineno(1))
                     + " : "
                     + "Expression and specified type do not match"
@@ -1150,7 +1309,7 @@ def p_VarSpec(p):
             ):
 
                 print_compilation_error(
-                    "COMPILATION ERROR at line "
+                    "Compilation Error at line "
                     + str(p.lineno(1))
                     + " : "
                     + "Expression and specified type do not match"
@@ -1160,7 +1319,7 @@ def p_VarSpec(p):
                 p[4].type == "intconst" or p[4].type == "floatconst"
             ):
                 print_compilation_error(
-                    "COMPILATION ERROR at line "
+                    "Compilation Error at line "
                     + str(p.lineno(1))
                     + " : "
                     + "Expression and specified type do not match"
@@ -1168,7 +1327,7 @@ def p_VarSpec(p):
 
             elif p[2].type == "STRING" and p[4].type != "stringconst":
                 print_compilation_error(
-                    "COMPILATION ERROR at line "
+                    "Compilation Error at line "
                     + str(p.lineno(1))
                     + " : "
                     + "Expression and specified type do not match"
@@ -1176,7 +1335,7 @@ def p_VarSpec(p):
 
             elif p[2].type == "BOOL" and p[4].type != "boolconst":
                 print_compilation_error(
-                    "COMPILATION ERROR at line "
+                    "Compilation Error at line "
                     + str(p.lineno(1))
                     + " : "
                     + "Expression and specified type do not match"
@@ -1184,7 +1343,7 @@ def p_VarSpec(p):
 
             elif p[2].type.startswith("ARRAY"):
                 print_compilation_error(
-                    "COMPILATION ERROR at line "
+                    "Compilation Error at line "
                     + str(p.lineno(1))
                     + " : "
                     + "Expression and specified type do not match"
@@ -1205,7 +1364,7 @@ def p_VarSpec(p):
                 _global_sp += _size[p[2].type]
 
             p[0].code = p[4].code
-            if p[2].type.endswith("*") or p[2].type in [
+            if p[4].type.endswith("*") or p[4].type in [
                 "INT",
                 "INT8",
                 "INT16",
@@ -1218,22 +1377,108 @@ def p_VarSpec(p):
                 "UINT64",
                 "BOOL",
             ]:
-                p[0].code.append(["int_copy", lexeme, p[4].place])
-            elif p[2].type in ["FLOAT32", "FLOAT64"]:
-                p[0].code.append(["float_copy", lexeme, p[4].place])
-            elif p[2].type in ["STRING"]:
-                p[0].code.append(["string_copy", lexeme, p[4].place])
+
+                temp = _current_scope
+                p[0].place = get_id_token()
+                p[0].place += "_" + str(SYMBOL_TABLE[temp][lexeme]["size"])
+                p[0].code.append(find_addr_of_variable(lexeme, p[0].place))
+                p[0].code.append(
+                    [
+                        get_store_instruction(p[4].type),
+                        p[4].place,
+                        "(" + p[0].place[1:] + ")",
+                    ]
+                )
+
+            elif p[4].type in ["FLOAT32", "FLOAT64"]:
+                temp = _current_scope
+                p[0].place = get_id_token()
+                p[0].place += "_" + str(SYMBOL_TABLE[temp][lexeme]["size"])
+                p[0].code.append(find_addr_of_variable(lexeme, p[0].place))
+                p[0].code.append(["s.s", p[4].place, "(" + p[0].place[1:] + ")"])
+            elif p[4].type in ["STRING"]:
+                str_len_reg = get_token()
+                ptr_reg = get_token()
+                p[0].code.append(["move", ptr_reg, p[4].place])
+                p[0].code.append(["lw", str_len_reg, "(" + ptr_reg + ")"])
+                p[0].code.append(["addi", str_len_reg, str_len_reg, 4])
+                new_reg = get_token()
+                p[0].code.append(["heap_mem", new_reg, str_len_reg])
+
+                p[0].place = get_id_token()
+                temp = _current_scope
+                p[0].place += "_" + str(SYMBOL_TABLE[temp][lexeme]["size"])
+                p[0].code.append(find_addr_of_variable(lexeme, p[0].place))
+                p[0].code.append(["sw", new_reg, "(" + p[0].place[1:] + ")"])
+                p[0].code.append(["addi", str_len_reg, str_len_reg, -4])
+                p[0].code.append(["sw", str_len_reg, "(" + new_reg + ")"])
+                p[0].code.append(["addi", new_reg, new_reg, 4])
+                p[0].code.append(["addi", ptr_reg, ptr_reg, 4])
+                temp_reg = get_token()
+                # TODO for loop to be inserted here  number of iterations are in str_len_reg
+
+                temp_label = generate_label()
+                temp_label2 = generate_label()
+
+                p[0].code.append(temp_label)
+                p[0].code.append(["beq", str_len_reg, "$0", temp_label2])
+                p[0].code.append(["addi", str_len_reg, str_len_reg, -1])
+                p[0].code.append(["lb", temp_reg, "(" + ptr_reg + ")"])
+                p[0].code.append(["sb", temp_reg, "(" + new_reg + ")"])
+                p[0].code.append(["addi", new_reg, new_reg, 1])
+                p[0].code.append(["addi", ptr_reg, ptr_reg, 1])
+                p[0].code.append(["j", temp_label])
+                p[0].code.append(temp_label2)
+
             elif p[4].type == "intconst":
-                p[0].code.append(["int_copy_immediate", lexeme, p[4].place])
+                temp = _current_scope
+                p[0].place = get_id_token()
+                p[0].place += "_" + str(SYMBOL_TABLE[temp][lexeme]["size"])
+                p[0].code.append(find_addr_of_variable(lexeme, p[0].place))
+                p[0].code.append(
+                    [
+                        get_store_instruction(p[4].type),
+                        p[4].place,
+                        "(" + p[0].place[1:] + ")",
+                    ]
+                )
             elif p[4].type == "floatconst":
-                p[0].code.append(["float_copy_immediate", lexeme, p[4].place])
+                temp = _current_scope
+                p[0].place = get_id_token()
+                p[0].place += "_" + str(SYMBOL_TABLE[temp][lexeme]["size"])
+                p[0].code.append(find_addr_of_variable(lexeme, p[0].place))
+                p[0].code.append(["s.s", p[4].place, "(" + p[0].place[1:] + ")"])
             elif p[4].type == "boolconst":
-                if p[4].place == "True":
-                    p[0].code.append(["load immediate", lexeme, "1"])
-                else:
-                    p[0].code.append(["load immediate", lexeme, "0"])
+                temp = _current_scope
+                p[0].place = get_id_token()
+                p[0].place += "_" + str(SYMBOL_TABLE[temp][lexeme]["size"])
+                p[0].code.append(find_addr_of_variable(lexeme, p[0].place))
+                p[0].code.append(
+                    [
+                        get_store_instruction(p[4].type),
+                        p[4].place,
+                        "(" + p[0].place[1:] + ")",
+                    ]
+                )
             elif p[4].type == "stringconst":
-                p[0].code.append(["string_copy_immediate", lexeme, p[4].place])
+                str_len = len(p[4].val) + 4
+                new_reg = get_token()
+                p[0].code.append(["heap_mem_immediate", new_reg, str_len])
+                temp = _current_scope
+                p[0].place = get_id_token()
+                p[0].place += "_" + str(SYMBOL_TABLE[temp][lexeme]["size"])
+                p[0].code.append(find_addr_of_variable(lexeme, p[0].place))
+                p[0].code.append(["sw", new_reg, "(" + p[0].place[1:] + ")"])
+
+                anot_temp = get_token()
+                p[0].code.append(["li", anot_temp, str_len - 4])
+                p[0].code.append(["sw", anot_temp, "(" + new_reg + ")"])
+                p[0].code.append(["addi", new_reg, new_reg, 4])
+                temp_reg = get_token()
+                for i in range(str_len - 8):
+                    p[0].code.append(["li", temp_reg, p[4].val[i]])
+                    p[0].code.append(["sb", temp_reg, "(" + new_reg + ")"])
+                    p[0].code.append(["addi", new_reg, new_reg, 1])
 
         else:
             # Pass complete array string
@@ -1264,6 +1509,38 @@ def p_VarSpec(p):
 
             SYMBOL_TABLE[_current_scope][lexeme]["array"] = dim
 
+            if len(array_init_list) != 0:
+                temp = _current_scope
+                p[0].place = get_id_token()
+                p[0].place += "_" + str(SYMBOL_TABLE[temp][lexeme]["size"])
+                p[0].code.append(find_addr_of_variable(lexeme, p[0].place))
+                if typ != "STRING":
+                    for i in range(len(array_init_list)):
+                        if typ in ["FLOAT32", "FLOAT64"]:
+                            anot_temp = get_f_token()
+                            p[0].code.append(["li.s", anot_temp, array_init_list[i]])
+                            p[0].code.append(
+                                ["s.s", anot_temp, "(" + p[0].place[1:] + ")"]
+                            )
+                        else:
+                            anot_temp = get_token()
+                            p[0].code.append(["li", anot_temp, array_init_list[i]])
+                            p[0].code.append(
+                                [
+                                    get_store_instruction(typ),
+                                    anot_temp,
+                                    "(" + p[0].place[1:] + ")",
+                                ]
+                            )
+                        p[0].code.append(
+                            ["addi", p[0].place[1:], p[0].place[1:], _size[typ]]
+                        )
+                        array_init_list = []
+                else:
+                    print_compilation_error(
+                        f"Compilation Error at line {p.lineno(1)}: Array of strings not supported"
+                    )
+    # TODO:
     elif len(p) == 4:
         if not p[3].type.startswith("ARRAY"):
             p[0].code = p[3].code
@@ -1433,26 +1710,18 @@ def p_IncDecStmt(p):  # to check on which all things can this be applied
     )  # this restricts the type of expressions on which it can be applied
     if found_scope == -1:
         print_compilation_error(
-            "Compilation Error at line" 
-            + str(p[1].line_num),
-            + ": Invalid operation on",
-            + str(p[1].val),
+            f"Compilation Error at line {p[1].line_num}: Operation increment/decrement invalid on {p[1].val}"
         )
+
     else:
         if (p[1].func == 1) or ("struct" in p[1].type.split()):
             print_compilation_error(
-                "Compilation Error at line"
-                + str(p[1].line_num)
-                + ": Invalid operation on"
-                + str(p[1].val)
+                f"Compilation Error at line {p[1].line_num}: Operation increment/decrement invalid on {p[1].val}"
             )
 
         elif p[1].level != 0:
             print_compilation_error(
-                "Compilation Error at line"
-                + str(p[1].line_num)
-                + ": Invalid operation on"
-                + str(p[1].val)
+                f"Compilation Error at line {p[1].line_num}: Operation increment/decrement invalid on {p[1].val}"
             )
 
         else:
@@ -1464,10 +1733,7 @@ def p_IncDecStmt(p):  # to check on which all things can this be applied
                     p[0].code.append(["int immediate +", p[0].place, p[1].place, "-1"])
             else:
                 print_compilation_error(
-                    "Compilation Error at line"
-                    + str(p[1].line_num)
-                    + ":Invalid operation on"
-                    + str(p[1].val)
+                    f"Compilation Error at line {p[1].line_num}: Operation increment/decrement invalid on {p[1].val}"
                 )
 
 
@@ -1479,26 +1745,38 @@ def p_IncDecStmt(p):  # to check on which all things can this be applied
 def p_Assignment_2(p):
     """Assignment : Expression assign_op Expression"""
 
+    lexeme = ""
+
+    if type(p[2]) is tuple:
+        lexeme = p[2][0]
+    else:
+        lexeme = p[2]
+
+    if not (p[1].place.startswith("*")):
+        print_compilation_error(
+            f"Compilation Error at line {p[1].line_num}: Cannot assign expression value to a R-value"
+        )
+
     if p[1].type in ["intconst", "floatconst", "boolconst", "stringconst"]:
         print_compilation_error(
-            str(p[1].line_num) + "COMPILATION ERROR : Left hand side cannot be constant"
+            f"Compilation Error at line {p[1].line_num}: Left hand side cannot be constant"
         )
 
     else:
-        if p[2] == ">>=" or p[2] == "<<=":
+        if lexeme == ">>=" or lexeme == "<<=":
             if not (
                 isint(p[1].type) and isint(p[3].type)
             ):  # can be int 8, int 32 etc or intconst
                 print_compilation_error(
                     str(p[1].line_num)
-                    + " COMPILATION ERROR : Incompatible data type with "
-                    + str(p[2])
+                    + " Compilation Error : Incompatible data type with "
+                    + str(lexeme)
                     + " operator",
                 )
 
             else:
                 p[0] = Node(
-                    name=p[2],
+                    name=lexeme,
                     val="",
                     line_num=p[1].line_num,
                     type=p[1].type,
@@ -1507,8 +1785,8 @@ def p_Assignment_2(p):
                 if p[1].type == "intconst":
                     print_compilation_error(
                         str(p[1].line_num)
-                        + "COMPILATION ERROR : Cannot apply "
-                        + str(p[2])
+                        + "Compilation Error : Cannot apply "
+                        + str(lexeme)
                         + " with "
                         + str(p[1].type)
                     )
@@ -1517,19 +1795,39 @@ def p_Assignment_2(p):
                     if p[3].type == "intconst":
                         p[0].code = p[1].code
                         p[0].place = get_token()
+                        if lexeme == "<<=":
+                            p[0].code.append(["sll", p[0].place, p[1].place, p[3].val])
+                        else:
+                            p[0].code.append(["sra", p[0].place, p[1].place, p[3].val])
                         p[0].code.append(
-                            [p[2] + "logical", p[0].place, p[1].place, p[3].place]
+                            [
+                                get_store_instruction(p[1].type),
+                                p[0].place,
+                                "(" + p[1].place[1:] + ")",
+                            ]
                         )
                         p[0].ast = add_edges(p)
                     else:
                         p[0].code = p[1].code + p[3].code
                         p[0].place = get_token()
+                        if lexeme == "<<=":
+                            p[0].code.append(
+                                ["sllv", p[0].place, p[1].place, p[3].place]
+                            )
+                        else:
+                            p[0].code.append(
+                                ["srav", p[0].place, p[1].place, p[3].place]
+                            )
                         p[0].code.append(
-                            [p[2] + "variable", p[0].place, p[1].place, p[3].place]
+                            [
+                                get_store_instruction(p[1].type),
+                                p[0].place,
+                                "(" + p[1].place[1:] + ")",
+                            ]
                         )
                         p[0].ast = add_edges(p)
 
-        elif p[2] == "+=" or p[2] == "-=" or p[2] == "*=":
+        elif lexeme == "+=" or lexeme == "-=" or lexeme == "*=":
             if (
                 equal(p[1].type, p[3].type) != ""
             ):  # should be exactly equal or atleast one is a constant
@@ -1537,14 +1835,14 @@ def p_Assignment_2(p):
                 if notcomparable(p[1].type):
                     print_compilation_error(
                         str(p[1].line_num)
-                        + " COMPILATION ERROR : Incomputable data type with "
-                        + str(p[2])
+                        + " Compilation Error : Incomputable data type with "
+                        + str(lexeme)
                         + " operator",
                     )
 
                 else:
                     p[0] = Node(
-                        name=p[2],
+                        name=lexeme,
                         val="",
                         line_num=p[1].line_num,
                         type=equal(p[1].type, p[3].type),
@@ -1564,89 +1862,175 @@ def p_Assignment_2(p):
                         if p[3].type == "intconst":
                             p[0].code = p[1].code
                             p[0].place = get_token()
+                            if lexeme == "+=":
+                                p[0].code.append(
+                                    [
+                                        "addi",
+                                        p[0].place,
+                                        p[1].place,
+                                        p[3].val,
+                                    ]
+                                )
+                            elif lexeme == "-=":
+                                p[0].code.append(
+                                    [
+                                        "addi",
+                                        p[0].place,
+                                        p[1].place,
+                                        "-" + p[3].val,
+                                    ]
+                                )
+                            elif lexeme == "*=":
+                                p[0].code += p[3].code
+                                cal_token = p[3].place
+                                p[0].code.append(
+                                    [
+                                        "mul",
+                                        p[0].place,
+                                        p[1].place,
+                                        cal_token,
+                                    ]
+                                )
+                            p[0].ast = add_edges(p)
                             p[0].code.append(
                                 [
-                                    "immediate" + "int" + p[2],
+                                    get_store_instruction(p[1].type),
                                     p[0].place,
-                                    p[1].place,
-                                    p[3].place,
+                                    "(" + p[1].place[1:] + ")",
                                 ]
                             )
-                            p[0].ast = add_edges(p)
-                        elif p[3].type == "floatconst":
-                            p[0].code = p[1].code
-                            p[0].place = get_token()
-                            p[0].code.append(
-                                [
-                                    "immediate" + "float" + p[2],
-                                    p[0].place,
-                                    p[1].place,
-                                    p[3].place,
-                                ]
-                            )
-                            p[0].ast = add_edges(p)
-                        elif p[1].type == "intconst":
-                            p[0].code = p[3].code
-                            p[0].place = get_token()
-                            p[0].code.append(
-                                [
-                                    "immediate" + "int" + p[2],
-                                    p[0].place,
-                                    p[3].place,
-                                    p[1].place,
-                                ]
-                            )
-                            p[0].ast = add_edges(p)
 
-                        elif p[1].type == "floatconst":
-                            p[0].code = p[3].code
-                            p[0].place = get_token()
-                            p[0].code.append(
-                                [
-                                    "immediate" + "float" + p[2],
-                                    p[0].place,
-                                    p[3].place,
-                                    p[1].place,
-                                ]
-                            )
+                        elif p[3].type == "floatconst":
+                            p[0].code = p[1].code + p[3].code
+                            p[0].place = get_f_token()
+                            cal_token = p[3].place
+                            if lexeme == "+=":
+                                p[0].code.append(
+                                    [
+                                        "add.s",
+                                        p[0].place,
+                                        p[1].place,
+                                        cal_token,
+                                    ]
+                                )
+                            elif lexeme == "-=":
+                                p[0].code.append(
+                                    [
+                                        "sub.s",
+                                        p[0].place,
+                                        p[1].place,
+                                        cal_token,
+                                    ]
+                                )
+
+                            elif lexeme == "*=":
+                                p[0].code.append(
+                                    [
+                                        "mul.s",
+                                        p[0].place,
+                                        p[1].place,
+                                        cal_token,
+                                    ]
+                                )
                             p[0].ast = add_edges(p)
+                            p[0].code.append(
+                                ["s.s", p[0].place, "(" + p[1].place[1:] + ")"]
+                            )
+
                         elif p[1].type in ["FLOAT32", "FLOAT64"]:
                             p[0].code = p[1].code + p[3].code
-                            # p[0].code.append(p[3].code)
-                            p[0].place = get_token()
-                            p[0].code.append(
-                                ["float" + p[2], p[0].place, p[1].place, p[3].place]
-                            )
+                            p[0].place = get_f_token()
+                            if lexeme == "+=":
+                                p[0].code.append(
+                                    [
+                                        "add.s",
+                                        p[0].place,
+                                        p[1].place,
+                                        p[3].place,
+                                    ]
+                                )
+                            elif lexeme == "-=":
+                                p[0].code.append(
+                                    [
+                                        "sub.s",
+                                        p[0].place,
+                                        p[1].place,
+                                        p[3].place,
+                                    ]
+                                )
+
+                            elif lexeme == "*=":
+                                p[0].code.append(
+                                    [
+                                        "mul.s",
+                                        p[0].place,
+                                        p[1].place,
+                                        p[3].place,
+                                    ]
+                                )
                             p[0].ast = add_edges(p)
+                            p[0].code.append(
+                                ["s.s", p[0].place, "(" + p[1].place[1:] + ")"]
+                            )
                         else:
                             p[0].code = p[1].code + p[3].code
-                            # p[0].code.append(p[3].code)
                             p[0].place = get_token()
-                            p[0].code.append(
-                                ["int" + p[2], p[0].place, p[1].place, p[3].place]
-                            )
+                            if lexeme == "+=":
+                                p[0].code.append(
+                                    [
+                                        "add",
+                                        p[0].place,
+                                        p[1].place,
+                                        p[3].place,
+                                    ]
+                                )
+                            elif lexeme == "-=":
+                                p[0].code.append(
+                                    [
+                                        "sub",
+                                        p[0].place,
+                                        p[1].place,
+                                        p[3].place,
+                                    ]
+                                )
+                            elif lexeme == "*=":
+                                p[0].code.append(
+                                    [
+                                        "mul",
+                                        p[0].place,
+                                        p[1].place,
+                                        p[3].place,
+                                    ]
+                                )
                             p[0].ast = add_edges(p)
+                            p[0].code.append(
+                                [
+                                    get_store_instruction(p[1].type),
+                                    p[0].place,
+                                    "(" + p[1].place[1:] + ")",
+                                ]
+                            )
             else:
                 print_compilation_error(
                     str(p[1].line_num)
-                    + " COMPILATION ERROR : Incompatible data type with "
+                    + " Compilation Error : Incompatible data type with "
                     + str(p[2])
                     + " operator",
                 )
 
-        elif p[2] == "/=":
+        elif lexeme == "/=":
             if equal(p[1].type, p[3].type) != "":
                 if notcomparable(p[1].type):
                     print_compilation_error(
                         str(p[1].line_num)
-                        + " COMPILATION ERROR : Incomputable data type with "
-                        + str(p[2])
+                        + " Compilation Error : Incomputable data type with "
+                        + str(lexeme)
                         + " operator",
                     )
 
                 else:
                     p[0] = Node(
-                        name=p[2],
+                        name=lexeme,
                         val="",
                         line_num=p[1].line_num,
                         type=equal(p[1].type, p[3].type),
@@ -1665,89 +2049,77 @@ def p_Assignment_2(p):
                         p[0].ast = add_edges(p)
                     else:
                         if p[3].type == "intconst":
-                            p[0].code = p[1].code
+                            p[0].code = p[1].code + p[3].code
                             p[0].place = get_token()
-                            temp_token = get_token()
-                            p[0].code.append(
-                                ["load immediate ", temp_token, p[3].place]
-                            )
-                            p[0].code.append(
-                                ["int" + p[2], p[0].place, p[1].place, temp_token]
-                            )
+                            p[0].code.append(["div", p[1].place, p[3].place])
+                            p[0].code.append(["mflo", p[0].place])
                             p[0].ast = add_edges(p)
+                            p[0].code.append(
+                                [
+                                    get_store_instruction(p[1].type),
+                                    p[0].place,
+                                    "(" + p[1].place[1:] + ")",
+                                ]
+                            )
+
                         elif p[3].type == "floatconst":
-                            p[0].code = p[1].code
-                            p[0].place = get_token()
-                            temp_token = get_token()
+                            p[0].code = p[1].code + p[3].code
+                            p[0].place = get_f_token()
+                            temp_token = p[3].place
                             p[0].code.append(
-                                ["load immediate ", temp_token, p[3].place]
-                            )
-                            p[0].code.append(
-                                ["float" + p[2], p[0].place, p[1].place, temp_token]
+                                ["div.s", p[0].place, p[1].place, temp_token]
                             )
                             p[0].ast = add_edges(p)
-                        elif p[1].type == "intconst":
-                            p[0].code = p[3].code
-                            p[0].place = get_token()
-                            temp_token = get_token()
                             p[0].code.append(
-                                ["load immediate ", temp_token, p[1].place]
+                                ["s.s", p[0].place, "(" + p[1].place[1:] + ")"]
                             )
-                            p[0].code.append(
-                                ["int" + p[2], p[0].place, temp_token, p[3].place]
-                            )
-                            p[0].ast = add_edges(p)
-                        elif p[1].type == "floatconst":
-                            p[0].code = p[3].code
-                            p[0].place = get_token()
-                            temp_token = get_token()
-                            p[0].code.append(
-                                ["load immediate ", temp_token, p[1].place]
-                            )
-                            p[0].code.append(
-                                ["int" + p[2], p[0].place, temp_token, p[3].place]
-                            )
-                            p[0].ast = add_edges(p)
 
                         elif p[1].type in ["FLOAT32", "FLOAT64"]:
                             p[0].code = p[1].code + p[3].code
-                            # p[0].code.append(p[3].code)
-                            p[0].place = get_token()
+                            p[0].place = get_f_token()
                             p[0].code.append(
-                                ["float" + p[2], p[0].place, p[1].place, p[3].place]
+                                ["div.s", p[0].place, p[1].place, p[3].place]
                             )
                             p[0].ast = add_edges(p)
+                            p[0].code.append(
+                                ["s.s", p[0].place, "(" + p[1].place[1:] + ")"]
+                            )
                         else:
                             p[0].code = p[1].code + p[3].code
-                            # p[0].code.append(p[3].code)
                             p[0].place = get_token()
-                            p[0].code.append(
-                                ["int" + p[2], p[0].place, p[1].place, p[3].place]
-                            )
+                            p[0].code.append(["div", p[1].place, p[3].place])
+                            p[0].code.append(["mflo", p[0].place])
                             p[0].ast = add_edges(p)
+                            p[0].code.append(
+                                [
+                                    get_store_instruction(p[1].type),
+                                    p[0].place,
+                                    "(" + p[1].place[1:] + ")",
+                                ]
+                            )
             else:
                 print_compilation_error(
                     str(p[1].line_num)
-                    + " COMPILATION ERROR : Incompatible data type with "
-                    + str(p[2])
+                    + " Compilation Error : Incompatible data type with "
+                    + str(lexeme)
                     + " operator",
                 )
 
-        elif p[2] == "%=":
+        elif lexeme == "%=":
             if not (
                 isint(p[1].type) and isint(p[3].type)
             ):  # can be int 8, int 32 etc or intconst
                 print_compilation_error(
                     str(p[1].line_num)
-                    + " COMPILATION ERROR : Incompatible data type with "
-                    + str(p[2])
+                    + " Compilation Error : Incompatible data type with "
+                    + str(lexeme)
                     + " operator",
                 )
 
             else:
                 if equal(p[1].type, p[3].type) != "":
                     p[0] = Node(
-                        name=p[2],
+                        name=lexeme,
                         val="",
                         line_num=p[1].line_num,
                         type=equal(p[1].type, p[3].type),
@@ -1761,12 +2133,17 @@ def p_Assignment_2(p):
                     else:
                         if p[1].type != "intconst" and p[3].type != "intconst":
                             p[0].code = p[1].code + p[3].code
-                            # p[0].code.append(p[3].code)
                             p[0].place = get_token()
-                            p[0].code.append(
-                                ["int" + p[2], p[0].place, p[1].place, p[3].place]
-                            )
+                            p[0].code.append(["div", p[1].place, p[3].place])
+                            p[0].code.append(["mfhi", p[0].place])
                             p[0].ast = add_edges(p)
+                            p[0].code.append(
+                                [
+                                    get_store_instruction(p[1].type),
+                                    p[0].place,
+                                    "(" + p[1].place[1:] + ")",
+                                ]
+                            )
                         else:
                             if p[1].type == "intconst":
                                 p[0].code = p[3].code
@@ -1780,39 +2157,41 @@ def p_Assignment_2(p):
                                 )
                                 p[0].ast = add_edges(p)
                             else:
-                                p[0].code = p[1].code
+                                p[0].code = p[1].code + p[3].code
                                 p[0].place = get_token()
-                                temp_token = get_token()
-                                p[0].code.append(
-                                    ["load immediate ", temp_token, p[3].place]
-                                )
-                                p[0].code.append(
-                                    ["int" + p[2], p[0].place, p[1].place, temp_token]
-                                )
+                                p[0].code.append(["div", p[1].place, p[3].place])
+                                p[0].code.append(["mfhi", p[0].place])
                                 p[0].ast = add_edges(p)
+                                p[0].code.append(
+                                    [
+                                        get_store_instruction(p[1].type),
+                                        p[0].place,
+                                        "(" + p[1].place[1:] + ")",
+                                    ]
+                                )
                 else:
                     print_compilation_error(
                         str(p[1].line_num)
-                        + " COMPILATION ERROR : Incompatible data type with "
-                        + str(p[2])
+                        + " Compilation Error : Incompatible data type with "
+                        + str(lexeme)
                         + " operator"
                     )
 
-        elif p[2] == "&=" or p[2] == "|=" or p[2] == "^=":
+        elif lexeme == "&=" or lexeme == "|=" or lexeme == "^=":
             if not (
                 isint(p[1].type) and isint(p[3].type)
             ):  # can be int 8, int 32 etc or intconst
                 print_compilation_error(
                     str(p[1].line_num)
-                    + " COMPILATION ERROR : Incompatible data type with "
-                    + str(p[2])
+                    + " Compilation Error : Incompatible data type with "
+                    + str(lexeme)
                     + " operator"
                 )
 
             else:
                 if p[1].type == p[3].type:
                     p[0] = Node(
-                        name=p[2],
+                        name=lexeme,
                         val="",
                         line_num=p[1].line_num,
                         type=p[1].type,
@@ -1823,29 +2202,40 @@ def p_Assignment_2(p):
                         p[0].code = p[1].code + p[3].code
                         # p[0].code.append(p[3].code)
                         p[0].place = get_token()
-                        p[0].code.append([p[2], p[0].place, p[1].place, p[3].place])
+                        if lexeme == "|=":
+                            p[0].code.append(["or", p[0].place, p[1].place, p[3].place])
+                        elif lexeme == "^=":
+                            p[0].code.append(
+                                ["xor", p[0].place, p[1].place, p[3].place]
+                            )
+                        elif lexeme == "&=":
+                            p[0].code.append(
+                                ["and", p[0].place, p[1].place, p[3].place]
+                            )
+                        p[0].code.append(
+                            [
+                                get_store_instruction(p[1].type),
+                                p[0].place,
+                                "(" + p[1].place[1:] + ")",
+                            ]
+                        )
+
                     else:
-                        p[0].val = str(operate(int(p[1].val), p[2], int(p[3].val)))
-                        p[0].code = []
-                        p[0].place = p[0].val
+                        p[0].val = str(operate(int(p[1].val), lexeme, int(p[3].val)))
+                        p[0].place = get_token()
+                        p[0].code.append(["addi", p[0].place, "$0", p[0].val])
                         p[0].ast = add_edges(p)
-                elif p[1].type == "intconst":
-                    p[0] = Node(
-                        name=p[2],
-                        val="",
-                        line_num=p[1].line_num,
-                        type=p[3].type,
-                        children=[],
-                    )
-                    p[0].code = p[3].code
-                    p[0].place = get_token()
-                    p[0].code.append(
-                        ["immediate" + p[2], p[0].place, p[3].place, p[1].place]
-                    )
-                    p[0].ast = add_edges(p)
+                        p[0].code.append(
+                            [
+                                get_store_instruction(p[1].type),
+                                p[0].place,
+                                "(" + p[1].place[1:] + ")",
+                            ]
+                        )
+
                 elif p[3].type == "intconst":
                     p[0] = Node(
-                        name=p[2],
+                        name=lexeme,
                         val="",
                         line_num=p[1].line_num,
                         type=p[1].type,
@@ -1853,22 +2243,33 @@ def p_Assignment_2(p):
                     )
                     p[0].code = p[1].code
                     p[0].place = get_token()
-                    p[0].code.append(
-                        ["immediate" + p[2], p[0].place, p[1].place, p[3].place]
-                    )
+                    if lexeme == "|=":
+                        p[0].code.append(["ori", p[0].place, p[1].place, p[3].val])
+                    elif lexeme == "^=":
+                        p[0].code.append(["xori", p[0].place, p[1].place, p[3].val])
+                    elif lexeme == "&=":
+                        p[0].code.append(["andi", p[0].place, p[1].place, p[3].val])
                     p[0].ast = add_edges(p)
+                    p[0].code.append(
+                        [
+                            get_store_instruction(p[1].type),
+                            p[0].place,
+                            "(" + p[1].place[1:] + ")",
+                        ]
+                    )
+
                 else:
                     print_compilation_error(
                         str(p[1].line_num)
-                        + " COMPILATION ERROR : Incompatible data type with "
-                        + str(p[2])
+                        + " Compilation Error : Incompatible data type with "
+                        + str(lexeme)
                         + " operator"
                     )
 
-        elif p[2] == "=":
+        elif lexeme == "=":
             if p[1].type == p[3].type:
                 p[0] = Node(
-                    name=p[2],
+                    name=lexeme,
                     val="",
                     line_num=p[1].line_num,
                     type=p[1].type,
@@ -1884,30 +2285,73 @@ def p_Assignment_2(p):
                     if isint(p[1].type) or p[1].type == "BOOL":
                         p[0].place = get_token()
                         p[0].code = p[1].code + p[3].code
-                        p[0].code.append(["int_copy", p[0].place, p[3].place])
                         p[0].ast = add_edges(p)
+                        p[0].code.append(
+                            [
+                                get_store_instruction(p[1].type),
+                                p[3].place,
+                                "(" + p[1].place[1:] + ")",
+                            ]
+                        )
                     elif p[1].type in ["FLOAT32", "FLOAT64"]:
                         p[0].place = get_token()
                         p[0].code = p[1].code + p[3].code
-                        p[0].code.append(["float_copy", p[0].place, p[3].place])
+                        p[0].code.append(
+                            ["s.s", p[3].place, "(" + p[1].place[1:] + ")"]
+                        )
                         p[0].ast = add_edges(p)
                     elif p[1].type.endswith("*"):
                         p[0].place = get_token()
                         p[0].code = p[1].code + p[3].code
-                        p[0].code.append(["int_copy", p[0].place, p[3].place])
+                        p[0].code.append(
+                            [
+                                get_store_instruction(p[1].type),
+                                p[3].place,
+                                "(" + p[1].place[1:] + ")",
+                            ]
+                        )
                         p[0].ast = add_edges(p)
                     else:
                         p[0].place = get_token()
                         p[0].code = p[1].code + p[3].code
-                        p[0].code.append(["string_copy", p[0].place, p[3].place])
+
+                        str_len_reg = get_token()
+                        ptr_reg = get_token()
+                        p[0].code.append(["move", ptr_reg, p[3].place])
+                        p[0].code.append(["lw", str_len_reg, "(" + ptr_reg + ")"])
+                        p[0].code.append(["addi", str_len_reg, str_len_reg, 4])
+                        new_reg = get_token()
+                        p[0].code.append(["heap_mem", new_reg, str_len_reg])
+
+                        p[0].code.append(["sw", new_reg, "(" + p[1].place[1:] + ")"])
+                        p[0].code.append(["addi", str_len_reg, str_len_reg, -4])
+                        p[0].code.append(["sw", str_len_reg, "(" + new_reg + ")"])
+                        p[0].code.append(["addi", new_reg, new_reg, 4])
+                        p[0].code.append(["addi", ptr_reg, ptr_reg, 4])
+                        temp_reg = get_token()
+
+                        temp_label = generate_label()
+                        temp_label2 = generate_label()
+
+                        p[0].code.append(temp_label)
+                        p[0].code.append(["beq", str_len_reg, "$0", temp_label2])
+                        p[0].code.append(["addi", str_len_reg, str_len_reg, -1])
+                        p[0].code.append(["lb", temp_reg, "(" + ptr_reg + ")"])
+                        p[0].code.append(["sb", temp_reg, "(" + new_reg + ")"])
+                        p[0].code.append(["addi", new_reg, new_reg, 1])
+                        p[0].code.append(["addi", ptr_reg, ptr_reg, 1])
+                        p[0].code.append(["j", temp_label])
+                        p[0].code.append(temp_label2)
+
                         p[0].ast = add_edges(p)
                 else:
                     print_compilation_error(
                         str(p[1].line_num)
-                        + " COMPILATION ERROR : Incompatible data type with assignment"
+                        + " Compilation Error : Incompatible data type with assignment"
                     )
 
             elif p[1].type == "STRING" and p[3].type == "stringconst":
+
                 p[0] = Node(
                     name=p[2],
                     val="",
@@ -1915,9 +2359,23 @@ def p_Assignment_2(p):
                     type=p[1].type,
                     children=[],
                 )
-                p[0].place = get_token()
-                p[0].code = p[1].code 
-                p[0].code.append(["string_copy_immediate", p[0].place, p[3].place])
+
+                str_len = len(p[3].val) + 4
+                new_reg = get_token()
+                p[0].code.append(["heap_mem_immediate", new_reg, str_len])
+
+                p[0].code.append(["sw", new_reg, "(" + p[1].place[1:] + ")"])
+
+                anot_temp = get_token()
+                p[0].code.append(["li", anot_temp, str_len - 4])
+                p[0].code.append(["sw", anot_temp, "(" + new_reg + ")"])
+                p[0].code.append(["addi", new_reg, new_reg, 4])
+                temp_reg = get_token()
+                for i in range(str_len - 8):
+                    p[0].code.append(["li", temp_reg, p[3].val[i]])
+                    p[0].code.append(["sb", temp_reg, "(" + new_reg + ")"])
+                    p[0].code.append(["addi", new_reg, new_reg, 1])
+
                 p[0].ast = add_edges(p)
 
             elif p[1].type == "BOOL" and p[3].type == "boolconst":
@@ -1929,13 +2387,15 @@ def p_Assignment_2(p):
                     children=[],
                 )
                 p[0].place = get_token()
-                p[0].code = p[1].code 
-                if p[3].place == "True":
-                    p[0].code.append(["load immediate", p[0].place, "1"])
-                else:
-                    p[0].code.append(["load immediate", p[0].place, "0"])
+                p[0].code = p[1].code + p[3].code
                 p[0].ast = add_edges(p)
-
+                p[0].code.append(
+                    [
+                        get_store_instruction(p[1].type),
+                        p[3].place,
+                        "(" + p[1].place[1:] + ")",
+                    ]
+                )
             elif p[1].type in ["FLOAT32", "FLOAT64"] and p[3].type in [
                 "floatconst",
             ]:
@@ -1947,8 +2407,8 @@ def p_Assignment_2(p):
                     children=[],
                 )
                 p[0].place = get_token()
-                p[0].code = p[1].code 
-                p[0].code.append(["float_copy_immediate", p[0].place, p[3].place])
+                p[0].code = p[1].code + p[3].code
+                p[0].code.append(["s.s", p[3].place, "(" + p[1].place[1:] + ")"])
                 p[0].ast = add_edges(p)
             elif p[1].type in ["INT", "INT8", "INT16", "INT32", "INT64",] and p[
                 3
@@ -1961,14 +2421,19 @@ def p_Assignment_2(p):
                     children=[],
                 )
                 p[0].place = get_token()
-                p[0].code = p[1].code 
-                p[0].code.append(["int_copy_immediate", p[0].place, p[3].place])
+                p[0].code = p[1].code + p[3].code
                 p[0].ast = add_edges(p)
-
+                p[0].code.append(
+                    [
+                        get_store_instruction(p[1].type),
+                        p[3].place,
+                        "(" + p[1].place[1:] + ")",
+                    ]
+                )
             else:
                 print_compilation_error(
                     str(p[1].line_num)
-                    + " COMPILATION ERROR : Incompatible data type with assignment"
+                    + " Compilation Error : Incompatible data type with assignment"
                 )
 
 
@@ -2032,10 +2497,7 @@ def p_PrimaryExpr_2(p):
     array_type = p[1].type.split()
     if len(array_type) <= 2:
         print_compilation_error(
-            "COMPILATION ERROR at line ",
-            str(p[1].line_num),
-            ", incorrect number of dimensions specified for " 
-            + p[1].val
+            f"Compilation Error at line {p[1].line_num}: Incorrect number of dimensions specified for {p[1].val}"
         )
 
     new_type = ""
@@ -2056,7 +2518,7 @@ def p_PrimaryExpr_2(p):
     p[0].level = p[1].level - 1
     p[0].ast = add_edges(p)
     p[0].dims = p[1].dims
-    p[0].code = p[1].code
+    p[0].code = p[1].code + p[2].code
     add = 1
     for i in range(len(p[0].dims) - p[0].level, len(p[0].dims)):
         add *= p[0].dims[i]
@@ -2077,23 +2539,22 @@ def p_PrimaryExpr_2(p):
         type_size = _size[type]
 
     temp_label = get_token()
-    p[0].place = "*" + get_token()
+
     add *= type_size
-    p[0].code.append(["int immediate *", temp_label, p[2].place, add])
-    p[0].code.append(["int  +", p[0].place, p[1].place, temp_label])
+    p[0].place = "*" + get_token() + "_" + str(add)
+    temp_reg = get_token()
+    p[0].code.append(["li", temp_reg, add])
+    p[0].code.append(["mul", temp_label, p[2].place, temp_reg])
+    p[0].code.append(["add", p[0].place[1:], p[1].place[1:], temp_label])
+
     if p[0].level == -1:
         print_compilation_error(
-            "COMPILATION ERROR at line "
-            + str(p[1].line_num)
-            + ", incorrect number of dimensions specified for " 
-            + p[1].val
+            f"Compilation Error at line {p[1].line_num}: Incorrect number of dimensions specified for {p[1].val}"
         )
 
     if not isint(p[2].type):
         print_compilation_error(
-            "Compilation Error: Array index at line "
-            + str(p[3].line_num)
-            + " is not of compatible type"
+            f"Compilation Error at line {p[3].line_num}: Array index is not of compatible type ({p[2].type})"
         )
 
 
@@ -2120,17 +2581,12 @@ def p_PrimaryExpr_8(p):  # same doubts as array
     p[0].ast = add_edges(p)
     if p[0].level == -1:
         print_compilation_error(
-            "COMPILATION ERROR at line "
-            + str(p[1].line_num),
-            + ", incorrect number of dimensions specified for " 
-            + str(p[1].val)
+            f"Compilation Error at line {p[1].line_num}: Incorrect number of dimensions specified for {p[1].val}"
         )
 
     if not isint(p[2].type):  # change this to handle 2:3 , :4 etc.
         print_compilation_error(
-            "Compilation Error: Slice index at line "
-            + str(p[3].line_num)
-            + " is not of compatible type"
+            f"Compilation Error at line {p[3].line_num}: Slice index is not of compatible type ({p[2].type})"
         )
 
 
@@ -2230,18 +2686,12 @@ def p_PrimaryExpr_6(p):  # to check this with antreev
             or "func" not in SYMBOL_TABLE[0][p[1].val].keys()
         ):
             print_compilation_error(
-                "COMPILATION ERROR at line "
-                + str(p[1].line_num)
-                + ": no function with name "
-                + p[1].val
-                + " declared"
+                f"Compilation Error at line {p[1].line_num}: No function with name {p[1].val} declared"
             )
 
         elif len(SYMBOL_TABLE[0][p[1].val]["argumentList"]) != 0:
             print_compilation_error(
-                "Syntax Error at line"
-                + str(p[1].line_num)
-                + "Incorrect number of arguments for function call"
+                f"Compilation Error at line {p[1].line_num}: Incorrect number of arguments for function call"
             )
 
     if len(p) == 5:  # check with antreev
@@ -2258,18 +2708,12 @@ def p_PrimaryExpr_6(p):  # to check this with antreev
             or "func" not in SYMBOL_TABLE[0][p[1].val].keys()
         ):
             print_compilation_error(
-                "COMPILATION ERROR at line :"
-                + str(p[1].line_num)
-                + ": no function with name "
-                + p[1].val
-                + " declared"
+                f"Compilation Error at line {p[1].line_num}: No function with name {p[1].val} declared"
             )
 
         elif len(SYMBOL_TABLE[0][p[1].val]["argumentList"]) != len(p[3].children):
             print_compilation_error(
-                "Syntax Error at line "
-                + str(p[1].line_num)
-                + " Incorrect number of arguments for function call"
+                f"Compilation Error at line {p[1].line_num}: Incorrect number of arguments for function call"
             )
 
         else:
@@ -2278,23 +2722,55 @@ def p_PrimaryExpr_6(p):  # to check this with antreev
             for arguments in SYMBOL_TABLE[0][p[1].val]["argumentList"]:
                 if equal(arguments, p[3].children[i].type) == "":
                     print_compilation_error(
-                        "COMPILATION ERROR at line "
-                        + str(p[1].line_num)
-                        + ": Type mismatch in argument "
-                        + str(i + 1)
-                        + " of function call, "
-                        + "actual type : "
-                        + str(arguments)
-                        + ", called with : "
-                        + str(p[3].children[i].type)
+                        f"Compilation Error at line {p[1].line_num}: Type mismatch in argument {i+1} of function call, actual type: {arguments}, called with: {p[3].children[i].type}"
                     )
-                    i += 1
+                i += 1
+
+            j = 0
+
+            for arguments in SYMBOL_TABLE[0][p[1].val]["argumentList"]:
+                val = 0
+                if j > -1:
+                    # code to push value to stack
+                    val = _size.get(arguments, 0)
+
+                    if arguments.endswith("*"):
+                        val = 8
+                    else:
+                        val = _size.get(arguments, 0)
+
+                    if arguments.startswith("ARRAY"):
+                        i = 0
+                        temp = arguments.split()
+
+                        Quant = 1
+                        while temp[i] == "ARRAY":
+                            i = i + 1
+
+                            Quant *= int(temp[i])
+                            i = i + 1
+                        typ = temp[i]
+                        if typ == "struct":
+                            typ = typ + " " + temp[i + 1]
+                        if typ.endswith("*"):
+                            val = Quant * 8
+                        else:
+                            val = Quant * _size[typ]
+                    _global_sp += val
+                    # TODO push to stack
+
+                j += 1
+
+    j = 0
+    p[0].code = []
+
+    p[0].code += [["jal", SYMBOL_TABLE[0][p[1].val]["jumpLabel"]]]
 
 
 def p_PrimaryExpr_7(p):
     """PrimaryExpr : PrimaryExpr DOT IDENTIFIER"""
     lexeme = ""
-    if p[3] is tuple:
+    if type(p[3]) is tuple:
         lexeme = p[3][0]
     else:
         lexeme = p[3]
@@ -2311,21 +2787,14 @@ def p_PrimaryExpr_7(p):
     struct_name = p[1].type
     if not struct_name.startswith("struct"):
         print_compilation_error(
-            "COMPILATION ERROR at line "
-            + str(p[1].line_num)
-            + ", "
-            + str(p[1].val)
-            + " is not a struct"
+            f"Compilation Error at line {p[1].line_num}: {p[1].val} is not a struct"
         )
 
     found_scope = find_scope(struct_name, p[1].line_num)
 
     if found_scope == -1:
         print_compilation_error(
-            "COMPILATION ERROR at line "
-            + str(p[1].line_num)
-            + ", No structure with name "
-            + str(struct_name)
+            f"Compilation Error at line {p[1].line_num}: No structure with name {struct_name}"
         )
 
     flag = 0
@@ -2333,6 +2802,7 @@ def p_PrimaryExpr_7(p):
     for curr_list in SYMBOL_TABLE[found_scope][struct_name]["field_list"]:
         if curr_list[0] == lexeme:
             off = _offset[struct_name][lexeme]
+            p[0].place += "_" + str(getsize(curr_list[1]))
             flag = 1
             if curr_list[1].startswith("ARRAY"):  # to handle slices as well
                 i = 0
@@ -2350,15 +2820,11 @@ def p_PrimaryExpr_7(p):
                 p[0].type = curr_list[1]
     if flag == 0:
         print_compilation_error(
-            "COMPILATION ERROR at line "
-            + str(p[1].line_num)
-            + " : field "
-            + " not declared in "
-            + str(struct_name)
+            f"Compilation Error at line {p[1].line_num}: Field not declared in struct {struct_name}"
         )
 
     else:
-        p[0].code.append(["int immediate + ", p[0].place, p[1].place, off])
+        p[0].code.append(["addi", p[0].place[1:], p[1].place[1:], off])
 
 
 def p_PrimaryExpr_9(p):
@@ -2411,18 +2877,14 @@ def p_Conversion(p):
 
     if not convertible(p[3].type, p[1].type):
         print_compilation_error(
-            str(p[1].line_num)
-            + "COMPILATION ERROR : Cannot Type Cast"
-            + str(p[3].type)
-            + "into"
-            + str(p[1].type)
+            f"Compilation Error at line {p.lineno(1)}: Cannot typecase {p[3].type} into {p[1].type}"
         )
 
 
 def p_Operand_1(p):  # DONE
     """Operand : IDENTIFIER"""
     lexeme = ""
-    if p[1] is tuple:
+    if type(p[1]) is tuple:
         lexeme = p[1][0]
     else:
         lexeme = p[1]
@@ -2432,6 +2894,11 @@ def p_Operand_1(p):  # DONE
     temp = declared_indentifier(lexeme, p.lineno(1))
 
     if temp != -1:
+        if not "func" in SYMBOL_TABLE[temp][lexeme]:
+            p[0].place = get_id_token()
+            p[0].place += "_" + str(SYMBOL_TABLE[temp][lexeme]["size"])
+            p[0].code.append(find_addr_of_variable(lexeme, p[0].place))
+
         p[0].type = SYMBOL_TABLE[temp][lexeme]["type"]
 
         # if ID is an array
@@ -2472,7 +2939,7 @@ def p_Literal_1(p):  # DONE
 def p_BasicLit_1(p):  # DONE
     """BasicLit : INTCONST"""
     lexeme = ""
-    if p[1] is tuple:
+    if type(p[1]) is tuple:
         lexeme = p[1][0]
     else:
         lexeme = p[1]
@@ -2484,14 +2951,15 @@ def p_BasicLit_1(p):  # DONE
         type="intconst",
         children=[],
     )
-    p[0].place = p[0].val
+    p[0].place = get_token()
+    p[0].code.append(["li", p[0].place, lexeme])
     p[0].ast = add_edges(p)
 
 
 def p_BasicLit_2(p):  # DONE
     """BasicLit : FLOATCONST"""
     lexeme = ""
-    if p[1] is tuple:
+    if type(p[1]) is tuple:
         lexeme = p[1][0]
     else:
         lexeme = p[1]
@@ -2503,14 +2971,15 @@ def p_BasicLit_2(p):  # DONE
         type="floatconst",
         children=[],
     )
-    p[0].place = p[0].val
+    p[0].place = get_token()
+    p[0].code.append(["li.s", p[0].place, lexeme])
     p[0].ast = add_edges(p)
 
 
 def p_BasicLit_3(p):  # DONE
     """BasicLit : STRINGCONST"""
     lexeme = ""
-    if p[1] is tuple:
+    if type(p[1]) is tuple:
         lexeme = p[1][0]
     else:
         lexeme = p[1]
@@ -2521,14 +2990,15 @@ def p_BasicLit_3(p):  # DONE
         type="stringconst",
         children=[],
     )
-    p[0].place = p[0].val
+    p[0].place = get_token()
+    p[0].code.append(get_pointer_for_stringconst(lexeme, p[0].place))
     p[0].ast = add_edges(p)
 
 
 def p_BasicLit_4(p):  # DONE
     """BasicLit : BOOLCONST"""
     lexeme = ""
-    if p[1] is tuple:
+    if type(p[1]) is tuple:
         lexeme = p[1][0]
     else:
         lexeme = p[1]
@@ -2539,7 +3009,13 @@ def p_BasicLit_4(p):  # DONE
         type="boolconst",
         children=[],
     )
-    p[0].place = p[0].val
+    p[0].place = get_token()
+
+    if lexeme == "True":
+        p[0].code.append(["addi", p[0].place, "$0", "1"])
+    else:
+        p[0].code.append(["move", p[0].place, "$0"])
+
     p[0].ast = add_edges(p)
 
 
@@ -2553,6 +3029,11 @@ def p_Literal_2(p):  # DONE
 # might have to add extra checks here
 def p_CompositeLit(p):
     """CompositeLit : LiteralType LiteralValue"""
+    if not equalarray(p[1].type, p[2].type):
+        print_compilation_error(
+            f"Compilation Error at line {p[1].line_num}: LiteralValue type and array type don't match"
+        )
+
     p[0] = Node(
         name="CompositeLit", val="", line_num=p[1].line_num, type=p[1].type, children=[]
     )
@@ -2568,6 +3049,7 @@ def p_LiteralType(p):  # not keeping BasicType for semantic checks
     p[0] = Node(
         name="LiteralType", val="", line_num=p[1].line_num, type=p[1].type, children=[]
     )
+    p[0].type = p[1].type
     p[0].ast = add_edges(p)
 
 
@@ -2575,6 +3057,7 @@ def p_LiteralValue(p):  # ElementList must have elments of same type
     """LiteralValue : LEFT_BRACE ElementList RIGHT_BRACE
     | LEFT_BRACE RIGHT_BRACE"""
     p[0] = Node(name="ElementList", val="", line_num=p.lineno(1), type="", children=[])
+    p[0].type = "ARRAY " + str(p[2].elem_cnt) + " " + p[2].type
     p[0].ast = add_edges(p)
 
 
@@ -2619,14 +3102,43 @@ def p_ElementList(p):
     p[0].ast = add_edges(p)
 
     if len(p) == 2:
+        p[0].elem_cnt = 1
+    else:
+        p[0].elem_cnt = 1 + p[3].elem_cnt
+        if p[1].type != p[3].type:
+            print_compilation_error(
+                f"Compilation Error at line {p[1].line_num}: Element list must contain elements of same type"
+            )
+
+    p[0].type = p[1].type
+
+    if len(p) == 2:
         p[0].code = p[1].code
     else:
         p[0].code = p[1].code + p[3].code
 
 
-def p_Element(p):
-    """Element : Expression
-    | LiteralValue"""
+def p_Element_1(p):
+    """Element : Expression"""
+    global array_init_list
+
+    p[0] = p[1]
+    p[0].ast = add_edges(p)
+    if p[1].type not in ["intconst", "floatconst", "stringconst", "boolconst"]:
+        print_compilation_error(
+            f"Compilation Error at line {p[1].line_num}: Element type must be a constant in initializer list"
+        )
+
+    if p[1].val == "true":
+        array_init_list.append("1")
+    elif p[1].val == "false":
+        array_init_list.append("0")
+    else:
+        array_init_list.append(p[1].val)
+
+
+def p_Element_2(p):
+    """Element : LiteralValue"""
     p[0] = p[1]
     p[0].ast = add_edges(p)
 
@@ -2660,16 +3172,20 @@ def p_Expression(p):
         p[0].ast = add_edges(p)
 
     else:
-        if p[2] == "||":
+        lexeme = ""
+
+        if type(p[2]) is tuple:
+            lexeme = p[2][0]
+        else:
+            lexeme = p[2]
+
+        if lexeme == "||":
             if not (
                 (p[1].type == "BOOL" or p[1].type == "boolconst")
                 and (p[3].type == "BOOL" or p[3].type == "boolconst")
             ):
                 print_compilation_error(
-                    str(p[1].line_num)
-                    + "COMPILATION ERROR : Incompatible data type with "
-                    + str(p[2])
-                    + " operator",
+                    f"Compilation Error at line {p[1].line_num}: Incompatible data type with {lexeme} operator",
                 )
 
             else:
@@ -2677,7 +3193,7 @@ def p_Expression(p):
                     name="OR",
                     val="",
                     line_num=p[1].line_num,
-                    type=equal(p[1].type, p[3].type),
+                    type="BOOL",
                     children=[],
                 )
                 p[0].ast = add_edges(p)
@@ -2688,21 +3204,18 @@ def p_Expression(p):
                 DSU_merge(p[0].false, p[3].false)
                 p[0].code = p[1].code + p[3].code
                 # p[0].code.append(p[1].code)
-                p[0].code.append(["BNEZ", p[1].place, p[1].true])
+                p[0].code.append(["bnez", p[1].place, p[1].true])
                 # p[0].code.append(p[3].code)
-                p[0].code.append(["BNEZ", p[3].place, p[3].true])
-                p[0].code.append(["GOTO", p[3].false])
+                p[0].code.append(["bnez", p[3].place, p[3].true])
+                p[0].code.append(["j", p[3].false])
 
-        if p[2] == "&&":
+        if lexeme == "&&":
             if not (
                 (p[1].type == "BOOL" or p[1].type == "boolconst")
                 and (p[3].type == "BOOL" or p[3].type == "boolconst")
             ):
                 print_compilation_error(
-                    str(p[1].line_num)
-                    + "COMPILATION ERROR : Incompatible data type with "
-                    + str(p[2])
-                    + " operator",
+                    f"Compilation Error at line {p[1].line_num}: Incompatible data type with {lexeme} operator",
                 )
 
             else:
@@ -2710,7 +3223,7 @@ def p_Expression(p):
                     name="AND",
                     val="",
                     line_num=p[1].line_num,
-                    type=equal(p[1].type, p[3].type),
+                    type="BOOL",
                     children=[],
                 )
                 p[0].ast = add_edges(p)
@@ -2721,26 +3234,23 @@ def p_Expression(p):
                 DSU_merge(p[0].true, p[3].true)
                 p[0].code = p[1].code + p[3].code
                 # p[0].code.append(p[1].code)
-                p[0].code.append(["BEZ", p[1].place, p[1].false])
+                p[0].code.append(["beq", "$0", p[1].place, p[1].false])
                 # p[0].code.append(p[3].code)
-                p[0].code.append(["BEZ", p[3].place, p[3].false])
-                p[0].code.append(["GOTO", p[3].true])
+                p[0].code.append(["beq", "$0", p[3].place, p[3].false])
+                p[0].code.append(["j", p[3].true])
 
-        if p[2] == "|" or p[2] == "^" or p[2] == "&":
+        if lexeme == "|" or lexeme == "^" or lexeme == "&":
             if not (
                 isint(p[1].type) and isint(p[3].type)
             ):  # can be int 8, int 32 etc or intconst
                 print_compilation_error(
-                    str(p[1].line_num)
-                    + "COMPILATION ERROR : Incompatible data type with "
-                    + str(p[2])
-                    + " operator",
+                    f"Compilation Error at line {p[1].line_num}: Incompatible data type with {lexeme} operator",
                 )
 
             else:
                 if p[1].type == p[3].type:
                     p[0] = Node(
-                        name=p[2],
+                        name=lexeme,
                         val="",
                         line_num=p[1].line_num,
                         type=p[1].type,
@@ -2751,15 +3261,25 @@ def p_Expression(p):
                         p[0].code = p[1].code + p[3].code
                         # p[0].code.append(p[3].code)
                         p[0].place = get_token()
-                        p[0].code.append([p[2], p[0].place, p[1].place, p[3].place])
+                        if lexeme == "|":
+                            p[0].code.append(["or", p[0].place, p[1].place, p[3].place])
+                        elif lexeme == "^":
+                            p[0].code.append(
+                                ["xor", p[0].place, p[1].place, p[3].place]
+                            )
+                        elif lexeme == "&":
+                            p[0].code.append(
+                                ["and", p[0].place, p[1].place, p[3].place]
+                            )
+
                     else:
-                        p[0].val = str(operate(int(p[1].val), p[2], int(p[3].val)))
-                        p[0].code = []
-                        p[0].place = p[0].val
+                        p[0].val = str(operate(int(p[1].val), lexeme, int(p[3].val)))
+                        p[0].place = get_token()
+                        p[0].code.append(["addi", p[0].place, "$0", p[0].val])
                         p[0].ast = add_edges(p)
                 elif p[1].type == "intconst":
                     p[0] = Node(
-                        name=p[2],
+                        name=lexeme,
                         val="",
                         line_num=p[1].line_num,
                         type=p[3].type,
@@ -2767,13 +3287,16 @@ def p_Expression(p):
                     )
                     p[0].code = p[3].code
                     p[0].place = get_token()
-                    p[0].code.append(
-                        ["immediate" + p[2], p[0].place, p[3].place, p[1].place]
-                    )
+                    if lexeme == "|":
+                        p[0].code.append(["ori", p[0].place, p[3].place, p[1].val])
+                    elif lexeme == "^":
+                        p[0].code.append(["xori", p[0].place, p[3].place, p[1].val])
+                    elif lexeme == "&":
+                        p[0].code.append(["andi", p[0].place, p[3].place, p[1].val])
                     p[0].ast = add_edges(p)
                 elif p[3].type == "intconst":
                     p[0] = Node(
-                        name=p[2],
+                        name=lexeme,
                         val="",
                         line_num=p[1].line_num,
                         type=p[1].type,
@@ -2781,142 +3304,355 @@ def p_Expression(p):
                     )
                     p[0].code = p[1].code
                     p[0].place = get_token()
-                    p[0].code.append(
-                        ["immediate" + p[2], p[0].place, p[1].place, p[3].place]
-                    )
+                    if lexeme == "|":
+                        p[0].code.append(["ori", p[0].place, p[1].place, p[3].val])
+                    elif lexeme == "^":
+                        p[0].code.append(["xori", p[0].place, p[1].place, p[3].val])
+                    elif lexeme == "&":
+                        p[0].code.append(["andi", p[0].place, p[1].place, p[3].val])
                     p[0].ast = add_edges(p)
+
                 else:
                     print_compilation_error(
-                        str(p[1].line_num)
-                        + "COMPILATION ERROR : Incompatible data type with "
-                        + str(p[2])
-                        + " operator",
+                        f"Compilation Error at line {p[1].line_num}: Incompatible data type with {lexeme} operator",
                     )
 
         if (
-            p[2] == "=="
-            or p[2] == "!="
-            or p[2] == "<="
-            or p[2] == ">="
-            or p[2] == "<"
-            or p[2] == ">"
+            lexeme == "=="
+            or lexeme == "!="
+            or lexeme == "<="
+            or lexeme == ">="
+            or lexeme == "<"
+            or lexeme == ">"
         ):
             if (
                 equal(p[1].type, p[3].type) != ""
             ):  # should be exactly equal or atleast one is a constant
                 if notcomparable(p[1].type) or notcomparable(p[3].type):
                     print_compilation_error(
-                        p[1].line_num,
-                        "COMPILATION ERROR : Incompatible data type with "
-                        + p[2]
-                        + " operator",
+                        f"Compilation Error at line {p[1].line_num}: Incompatible data type with {lexeme} operator",
                     )
 
                 else:
                     p[0] = Node(
-                        name=p[2],
+                        name=lexeme,
                         val="",
                         line_num=p[1].line_num,
                         type="BOOL",
                         children=[],
                     )
                     if p[1].type == "intconst" and p[3].type == "intconst":
-                        p[0].val = operate(int(p[1].val), p[2], int(p[3].val))
-                        p[0].code = []
-                        p[0].place = p[0].val
+                        p[0].val = operate(int(p[1].val), lexeme, int(p[3].val))
+                        p[0].place = get_token()
                         p[0].type = "boolconst"
+                        p[0].code.append(["addi", p[0].place, "$0", p[0].val])
                         p[0].ast = add_edges(p)
                     elif p[1].type == "floatconst" and p[3].type == "floatconst":
-                        p[0].val = operate(float(p[1].val), p[2], float(p[3].val))
-                        p[0].code = []
-                        p[0].place = p[0].val
+                        p[0].val = operate(float(p[1].val), lexeme, float(p[3].val))
+                        p[0].place = get_token()
                         p[0].type = "boolconst"
+                        p[0].code.append(["addi", p[0].place, "$0", p[0].val])
                         p[0].ast = add_edges(p)
                     else:
                         if p[3].type == "intconst":
-                            p[0].code = p[1].code
+                            p[0].code = p[1].code + p[3].code
                             p[0].place = get_token()
-                            p[0].code.append(
-                                [
-                                    "immediate" + "int" + p[2],
-                                    p[0].place,
-                                    p[1].place,
-                                    p[3].place,
-                                ]
-                            )
+                            cal_token = p[3].place
+                            if lexeme == "==":
+                                p[0].code.append(
+                                    ["seq", p[0].place, p[1].place, cal_token]
+                                )
+
+                            elif lexeme == "!=":
+                                p[0].code.append(
+                                    ["sne", p[0].place, p[1].place, cal_token]
+                                )
+
+                            elif lexeme == "<=":
+                                p[0].code.append(
+                                    ["sle", p[0].place, p[1].place, cal_token]
+                                )
+
+                            elif lexeme == ">=":
+                                p[0].code.append(
+                                    ["sge", p[0].place, p[1].place, cal_token]
+                                )
+
+                            elif lexeme == ">":
+                                p[0].code.append(
+                                    ["sgt", p[0].place, p[1].place, cal_token]
+                                )
+
+                            elif lexeme == "<":
+                                p[0].code.append(
+                                    ["slt", p[0].place, p[1].place, cal_token]
+                                )
+
                             p[0].ast = add_edges(p)
                         elif p[3].type == "floatconst":
-                            p[0].code = p[1].code
+                            p[0].code = p[1].code + p[3].code
                             p[0].place = get_token()
-                            p[0].code.append(
-                                [
-                                    "immediate" + "float" + p[2],
-                                    p[0].place,
-                                    p[1].place,
-                                    p[3].place,
-                                ]
-                            )
+                            cal_token = p[3].place
+                            if lexeme == "==":
+                                p[0].code.append(
+                                    ["c.eq.s", p[0].place, p[1].place, cal_token]
+                                )
+                                temp_label = generate_label()
+                                p[0].code.append(["addi", p[0].place, "$0", "1"])
+                                p[0].code.append(["bc1t", temp_label])
+                                p[0].code.append(["move", p[0].place, "$0"])
+                                p[0].code.append([temp_label])
+                            elif lexeme == "!=":
+                                p[0].code.append(
+                                    ["c.eq.s", p[0].place, p[1].place, cal_token]
+                                )
+                                temp_label = generate_label()
+                                p[0].code.append(["addi", p[0].place, "$0", "1"])
+                                p[0].code.append(["bc1f", temp_label])
+                                p[0].code.append(["move", p[0].place, "$0"])
+                                p[0].code.append([temp_label])
+                            elif lexeme == "<=":
+                                p[0].code.append(
+                                    ["c.le.s", p[0].place, p[1].place, cal_token]
+                                )
+                                temp_label = generate_label()
+                                p[0].code.append(["addi", p[0].place, "$0", "1"])
+                                p[0].code.append(["bc1t", temp_label])
+                                p[0].code.append(["move", p[0].place, "$0"])
+                                p[0].code.append([temp_label])
+                            elif lexeme == ">=":
+                                p[0].code.append(
+                                    ["c.lt.s", p[0].place, p[1].place, cal_token]
+                                )
+                                temp_label = generate_label()
+                                p[0].code.append(["addi", p[0].place, "$0", "1"])
+                                p[0].code.append(["bc1f", temp_label])
+                                p[0].code.append(["move", p[0].place, "$0"])
+                                p[0].code.append([temp_label])
+                            elif lexeme == ">":
+                                p[0].code.append(
+                                    ["c.le.s", p[0].place, p[1].place, cal_token]
+                                )
+                                temp_label = generate_label()
+                                p[0].code.append(["addi", p[0].place, "$0", "1"])
+                                p[0].code.append(["bc1f", temp_label])
+                                p[0].code.append(["move", p[0].place, "$0"])
+                                p[0].code.append([temp_label])
+
+                            elif lexeme == "<":
+                                p[0].code.append(
+                                    ["c.lt.s", p[0].place, p[1].place, cal_token]
+                                )
+                                temp_label = generate_label()
+                                p[0].code.append(["addi", p[0].place, "$0", "1"])
+                                p[0].code.append(["bc1t", temp_label])
+                                p[0].code.append(["move", p[0].place, "$0"])
+                                p[0].code.append([temp_label])
                             p[0].ast = add_edges(p)
                         elif p[1].type == "intconst":
-                            p[0].code = p[3].code
+                            p[0].code = p[3].code + p[1].code
                             p[0].place = get_token()
-                            p[0].code.append(
-                                [
-                                    "immediate" + "int" + p[2],
-                                    p[0].place,
-                                    p[3].place,
-                                    p[1].place,
-                                ]
-                            )
+                            cal_token = p[1].place
+                            if lexeme == "==":
+                                p[0].code.append(
+                                    ["seq", p[0].place, cal_token, p[3].place]
+                                )
+                            elif lexeme == "!=":
+                                p[0].code.append(
+                                    ["sne", p[0].place, cal_token, p[3].place]
+                                )
+
+                            elif lexeme == "<=":
+                                p[0].code.append(
+                                    ["sle", p[0].place, cal_token, p[3].place]
+                                )
+                            elif lexeme == ">=":
+                                p[0].code.append(
+                                    ["sge", p[0].place, cal_token, p[3].place]
+                                )
+                            elif lexeme == ">":
+                                p[0].code.append(
+                                    ["sgt", p[0].place, cal_token, p[3].place]
+                                )
+
+                            elif lexeme == "<":
+                                p[0].code.append(
+                                    ["slt", p[0].place, cal_token, p[3].place]
+                                )
+
                             p[0].ast = add_edges(p)
 
                         elif p[1].type == "floatconst":
-                            p[0].code = p[3].code
+                            p[0].code = p[3].code + p[1].code
                             p[0].place = get_token()
-                            p[0].code.append(
-                                [
-                                    "immediate" + "float" + p[2],
-                                    p[0].place,
-                                    p[3].place,
-                                    p[1].place,
-                                ]
-                            )
+                            cal_token = p[1].place
+
+                            if lexeme == "==":
+                                p[0].code.append(
+                                    ["c.eq.s", p[0].place, cal_token, p[3].place]
+                                )
+                                temp_label = generate_label()
+                                p[0].code.append(["addi", p[0].place, "$0", "1"])
+                                p[0].code.append(["bc1t", temp_label])
+                                p[0].code.append(["move", p[0].place, "$0"])
+                                p[0].code.append([temp_label])
+                            elif lexeme == "!=":
+                                p[0].code.append(
+                                    ["c.eq.s", p[0].place, cal_token, p[3].place]
+                                )  # p[0].code.append(["c.eq.s",p[0].place,p[1].place,cal_token])
+                                temp_label = generate_label()
+                                p[0].code.append(["addi", p[0].place, "$0", "1"])
+                                p[0].code.append(["bc1f", temp_label])
+                                p[0].code.append(["move", p[0].place, "$0"])
+                                p[0].code.append([temp_label])
+                            elif lexeme == "<=":
+                                p[0].code.append(
+                                    ["c.le.s", p[0].place, cal_token, p[3].place]
+                                )  # p[0].code.append(["c.le.s",p[0].place,p[1].place,cal_token])
+                                temp_label = generate_label()
+                                p[0].code.append(["addi", p[0].place, "$0", "1"])
+                                p[0].code.append(["bc1t", temp_label])
+                                p[0].code.append(["move", p[0].place, "$0"])
+                                p[0].code.append([temp_label])
+                            elif lexeme == ">=":
+                                p[0].code.append(
+                                    ["c.lt.s", p[0].place, cal_token, p[3].place]
+                                )  # p[0].code.append(["c.lt.s",p[0].place,p[1].place,cal_token])
+                                temp_label = generate_label()
+                                p[0].code.append(["addi", p[0].place, "$0", "1"])
+                                p[0].code.append(["bc1f", temp_label])
+                                p[0].code.append(["move", p[0].place, "$0"])
+                                p[0].code.append([temp_label])
+                            elif lexeme == ">":
+                                p[0].code.append(
+                                    ["c.le.s", p[0].place, cal_token, p[3].place]
+                                )  # p[0].code.append(["c.le.s",p[0].place,p[1].place,cal_token])
+                                temp_label = generate_label()
+                                p[0].code.append(["addi", p[0].place, "$0", "1"])
+                                p[0].code.append(["bc1f", temp_label])
+                                p[0].code.append(["move", p[0].place, "$0"])
+                                p[0].code.append([temp_label])
+                                p[0].code.append(
+                                    ["addi", p[0].place, p[1].place, "-" + p[3].place]
+                                )
+                            elif lexeme == "<":
+                                p[0].code.append(
+                                    ["c.lt.s", p[0].place, cal_token, p[3].place]
+                                )  # p[0].code.append(["c.lt.s",p[0].place,p[1].place,cal_token])
+                                temp_label = generate_label()
+                                p[0].code.append(["addi", p[0].place, "$0", "1"])
+                                p[0].code.append(["bc1t", temp_label])
+                                p[0].code.append(["move", p[0].place, "$0"])
+                                p[0].code.append([temp_label])
                             p[0].ast = add_edges(p)
                         elif p[1].type in ["FLOAT32", "FLOAT64"]:
                             p[0].code = p[1].code + p[3].code
-                            # p[0].code.append(p[3].code)
                             p[0].place = get_token()
-                            p[0].code.append(
-                                ["float" + p[2], p[0].place, p[1].place, p[3].place]
-                            )
+                            if lexeme == "==":
+                                p[0].code.append(
+                                    ["c.eq.s", p[0].place, p[1].place, p[3].place]
+                                )
+                                temp_label = generate_label()
+                                p[0].code.append(["addi", p[0].place, "$0", "1"])
+                                p[0].code.append(["bc1t", temp_label])
+                                p[0].code.append(["move", p[0].place, "$0"])
+                                p[0].code.append([temp_label])
+                            elif lexeme == "!=":
+                                p[0].code.append(
+                                    ["c.eq.s", p[0].place, p[1].place, p[3].place]
+                                )  # p[0].code.append(["c.eq.s",p[0].place,p[1].place,cal_token])
+                                temp_label = generate_label()
+                                p[0].code.append(["addi", p[0].place, "$0", "1"])
+                                p[0].code.append(["bc1f", temp_label])
+                                p[0].code.append(["move", p[0].place, "$0"])
+                                p[0].code.append([temp_label])
+                            elif lexeme == "<=":
+                                p[0].code.append(
+                                    ["c.le.s", p[0].place, p[1].place, p[3].place]
+                                )  # p[0].code.append(["c.le.s",p[0].place,p[1].place,cal_token])
+                                temp_label = generate_label()
+                                p[0].code.append(["addi", p[0].place, "$0", "1"])
+                                p[0].code.append(["bc1t", temp_label])
+                                p[0].code.append(["move", p[0].place, "$0"])
+                                p[0].code.append([temp_label])
+                            elif lexeme == ">=":
+                                p[0].code.append(
+                                    ["c.lt.s", p[0].place, p[1].place, p[3].place]
+                                )  # p[0].code.append(["c.lt.s",p[0].place,p[1].place,cal_token])
+                                temp_label = generate_label()
+                                p[0].code.append(["addi", p[0].place, "$0", "1"])
+                                p[0].code.append(["bc1f", temp_label])
+                                p[0].code.append(["move", p[0].place, "$0"])
+                                p[0].code.append([temp_label])
+                            elif lexeme == ">":
+                                p[0].code.append(
+                                    ["c.le.s", p[0].place, p[1].place, p[3].place]
+                                )  # p[0].code.append(["c.le.s",p[0].place,p[1].place,cal_token])
+                                temp_label = generate_label()
+                                p[0].code.append(["addi", p[0].place, "$0", "1"])
+                                p[0].code.append(["bc1f", temp_label])
+                                p[0].code.append(["move", p[0].place, "$0"])
+                                p[0].code.append([temp_label])
+                                p[0].code.append(
+                                    ["addi", p[0].place, p[1].place, "-" + p[3].place]
+                                )
+                            elif lexeme == "<":
+                                p[0].code.append(
+                                    ["c.lt.s", p[0].place, p[1].place, p[3].place]
+                                )  # p[0].code.append(["c.lt.s",p[0].place,p[1].place,cal_token])
+                                temp_label = generate_label()
+                                p[0].code.append(["addi", p[0].place, "$0", "1"])
+                                p[0].code.append(["bc1t", temp_label])
+                                p[0].code.append(["move", p[0].place, "$0"])
+                                p[0].code.append([temp_label])
                             p[0].ast = add_edges(p)
                         else:
                             p[0].code = p[1].code + p[3].code
-                            # p[0].code.append(p[3].code)
                             p[0].place = get_token()
-                            p[0].code.append(
-                                ["int" + p[2], p[0].place, p[1].place, p[3].place]
-                            )
+                            if lexeme == "==":
+                                p[0].code.append(
+                                    ["seq", p[0].place, p[1].place, p[3].place]
+                                )
+
+                            elif lexeme == "!=":
+                                p[0].code.append(
+                                    ["sne", p[0].place, p[1].place, p[3].place]
+                                )
+
+                            elif lexeme == "<=":
+                                p[0].code.append(
+                                    ["sle", p[0].place, p[1].place, p[3].place]
+                                )
+
+                            elif lexeme == ">=":
+                                p[0].code.append(
+                                    ["sge", p[0].place, p[1].place, p[3].place]
+                                )
+
+                            elif lexeme == ">":
+                                p[0].code.append(
+                                    ["sgt", p[0].place, p[1].place, p[3].place]
+                                )
+
+                            elif lexeme == "<":
+                                p[0].code.append(
+                                    ["slt", p[0].place, p[1].place, p[3].place]
+                                )
+
                             p[0].ast = add_edges(p)
                     p[0].true = generate_label()
                     p[0].false = generate_label()
             else:
                 print_compilation_error(
-                    str(p[1].line_num)
-                    + "COMPILATION ERROR : Incompatible data type with "
-                    + str(p[2])
-                    + " operator",
+                    f"Compilation Error at line {p[1].line_num}: Incompatible data type with {lexeme} operator",
                 )
 
-        if p[2] == "<<" or p[2] == ">>":
+        if lexeme == "<<" or lexeme == ">>":
             if not (
                 isint(p[1].type) and isint(p[3].type)
             ):  # can be int 8, int 32 etc or intconst
                 print_compilation_error(
-                    str(p[1].line_num)
-                    + "COMPILATION ERROR : Incompatible data type with "
-                    + str(p[2])
-                    + " operator",
+                    f"Compilation Error at line {p[1].line_num}: Incompatible data type with {lexeme} operator",
                 )
 
             else:
@@ -2929,40 +3665,39 @@ def p_Expression(p):
                 )
                 if p[1].type == "intconst":
                     print_compilation_error(
-                        str(p[1].line_num)
-                        + "COMPILATION ERROR : Cannot apply"
-                        + str(p[2])
-                        + " with "
-                        + str(p[1].type)
+                        f"Compilation Error at line {p[1].line_num}: Incompatible data type with {lexeme} operator",
                     )
 
                 else:
                     if p[3].type == "intconst":
                         p[0].code = p[1].code
                         p[0].place = get_token()
-                        p[0].code.append(
-                            [p[2] + "logical", p[0].place, p[1].place, p[3].place]
-                        )
+                        if lexeme == "<<":
+                            p[0].code.append(["sll", p[0].place, p[1].place, p[3].val])
+                        else:
+                            p[0].code.append(["sra", p[0].place, p[1].place, p[3].val])
                         p[0].ast = add_edges(p)
                     else:
-                        p[0].code = p[1].code
-                        p[0].code = p[3].code
+                        p[0].code = p[1].code + p[3].code
                         p[0].place = get_token()
-                        p[0].code.append(
-                            [p[2] + "variable", p[0].place, p[1].place, p[3].place]
-                        )
+                        if lexeme == "<<":
+                            p[0].code.append(
+                                ["sllv", p[0].place, p[1].place, p[3].place]
+                            )
+                        else:
+                            p[0].code.append(
+                                ["srav", p[0].place, p[1].place, p[3].place]
+                            )
                         p[0].ast = add_edges(p)
-        if p[2] == "+" or p[2] == "-" or p[2] == "*":
+
+        if lexeme == "+" or lexeme == "-" or lexeme == "*":
             if (
                 equal(p[1].type, p[3].type) != ""
             ):  # should be exactly equal or atleast one is a constant
 
                 if notcomparable(p[1].type):
                     print_compilation_error(
-                        str(p[1].line_num)
-                        + "COMPILATION ERROR : Incomputable data type with "
-                        + str(p[2])
-                        + " operator",
+                        f"Compilation Error at line {p[1].line_num}: Incompatible data type with {lexeme} operator",
                     )
 
                 else:
@@ -2975,98 +3710,391 @@ def p_Expression(p):
                     )
                     if p[1].type == "intconst" and p[3].type == "intconst":
                         p[0].val = str(operate(int(p[1].val), p[2], int(p[3].val)))
-                        p[0].code = []
-                        p[0].place = p[0].val
+                        p[0].place = get_token()
+                        p[0].code.append(["addi", p[0].place, "$0", p[0].val])
                         p[0].ast = add_edges(p)
                     elif p[1].type == "floatconst" and p[3].type == "floatconst":
                         p[0].val = str(operate(float(p[1].val), p[2], float(p[3].val)))
-                        p[0].code = []
-                        p[0].place = p[0].val
+                        p[0].place = get_f_token()
+                        p[0].code.append(["li.s", p[0].place, p[0].val])
                         p[0].ast = add_edges(p)
+                    elif p[1].type == "stringconst" and p[3].type == "stringconst":
+                        new_str = p[1].val + p[3].val
+                        p[0].val = new_str
+                        # str_len = len(new_str) + 8
+                        # new_reg = get_token()
+                        # p[0].place = get_token()
+                        # p[0].code.append(["heap_mem_immediate",new_reg,str_len])
+
+                        # p[0].code.append(["move",p[0].place,new_reg])
+                        # p[0].code.append(["int_copy_immediate","*"+new_reg, str_len-8])
+                        # p[0].code.append(["add_int_immediate",new_reg,8])
+                        # temp_reg = get_token()
+                        # for i in range(str_len-8):
+                        #     p[0].code.append(["load_immediate",temp_reg,new_str[i]])
+                        #     p[0].code.append(["store_byte",temp_reg,"*"+new_reg])
+                        #     p[0].code.append(["add_int_immediate",new_reg,1])
                     else:
                         if p[3].type == "intconst":
-                            p[0].code = p[1].code
+                            p[0].code = p[1].code + p[3].code
                             p[0].place = get_token()
-                            p[0].code.append(
-                                [
-                                    "immediate" + "int" + p[2],
-                                    p[0].place,
-                                    p[1].place,
-                                    p[3].place,
-                                ]
-                            )
+                            if lexeme == "+":
+                                p[0].code.append(
+                                    [
+                                        "addi",
+                                        p[0].place,
+                                        p[1].place,
+                                        p[3].place,
+                                    ]
+                                )
+                            elif lexeme == "-":
+                                p[0].code.append(
+                                    [
+                                        "addi",
+                                        p[0].place,
+                                        p[1].place,
+                                        "-" + p[3].place,
+                                    ]
+                                )
+                            elif lexeme == "*":
+                                cal_token = p[3].place
+                                p[0].code.append(
+                                    [
+                                        "mul",
+                                        p[0].place,
+                                        p[1].place,
+                                        cal_token,
+                                    ]
+                                )
                             p[0].ast = add_edges(p)
+
                         elif p[3].type == "floatconst":
-                            p[0].code = p[1].code
-                            p[0].place = get_token()
-                            p[0].code.append(
-                                [
-                                    "immediate" + "float" + p[2],
-                                    p[0].place,
-                                    p[1].place,
-                                    p[3].place,
-                                ]
-                            )
+                            p[0].code = p[1].code + p[3].code
+                            p[0].place = get_f_token()
+                            cal_token = p[3].place
+                            if lexeme == "+":
+                                p[0].code.append(
+                                    [
+                                        "add.s",
+                                        p[0].place,
+                                        p[1].place,
+                                        cal_token,
+                                    ]
+                                )
+                            elif lexeme == "-":
+                                p[0].code.append(
+                                    [
+                                        "sub.s",
+                                        p[0].place,
+                                        p[1].place,
+                                        cal_token,
+                                    ]
+                                )
+
+                            elif lexeme == "*":
+                                p[0].code.append(
+                                    [
+                                        "mul.s",
+                                        p[0].place,
+                                        p[1].place,
+                                        cal_token,
+                                    ]
+                                )
                             p[0].ast = add_edges(p)
+                        elif p[3].type == "stringconst":
+                            str_len_reg1 = get_token()
+                            str_len_reg = get_token()
+                            ptr_reg = get_token()
+                            p[0].code.append(["move", ptr_reg, p[1].place])
+                            p[0].code.append(["lw", str_len_reg1, "(" + ptr_reg + ")"])
+                            p[0].code.append(
+                                ["addi", str_len_reg, str_len_reg1, len(p[3].val)]
+                            )
+                            new_reg = get_token()
+                            p[0].code.append(["addi", str_len_reg, str_len_reg, 4])
+                            p[0].code.append(["heap_mem", new_reg, str_len_reg])
+                            p[0].place = get_token()
+                            p[0].code.append(["move", p[0].place, new_reg])
+                            p[0].code.append(["addi", str_len_reg, str_len_reg, -4])
+                            p[0].code.append(["sw", str_len_reg, "(" + new_reg + ")"])
+
+                            p[0].code.append(["addi", new_reg, new_reg, 4])
+
+                            p[0].code.append(["addi", ptr_reg, ptr_reg, 4])
+
+                            temp_reg = get_token()
+                            # TODO for loop to be inserted here  number of iterations are in str_len_reg1
+                            # begin loop
+
+                            temp_label = generate_label()
+                            temp_label2 = generate_label()
+                            p[0].code.append(temp_label)
+                            p[0].code.append(["beq", str_len_reg1, "$0", temp_label2])
+                            p[0].code.append(["addi", str_len_reg1, str_len_reg1, -1])
+                            p[0].code.append(["lb", temp_reg, "(" + ptr_reg + ")"])
+                            p[0].code.append(["sb", temp_reg, "(" + new_reg + ")"])
+                            p[0].code.append(["addi", new_reg, new_reg, 1])
+                            p[0].code.append(["addi", ptr_reg, ptr_reg, 1])
+                            p[0].code.append(["j", temp_label])
+                            p[0].code.append(temp_label2)
+
+                            # end loop
+
+                            new_str = p[3].val
+                            for i in range(len(new_str)):
+                                p[0].code.append(["li", temp_reg, new_str[i]])
+                                p[0].code.append(["sb", temp_reg, "(" + new_reg + ")"])
+                                p[0].code.append(["addi", new_reg, new_reg, 1])
+
                         elif p[1].type == "intconst":
                             p[0].code = p[3].code
                             p[0].place = get_token()
-                            p[0].code.append(
-                                [
-                                    "immediate" + "int" + p[2],
-                                    p[0].place,
-                                    p[3].place,
-                                    p[1].place,
-                                ]
-                            )
+                            if lexeme == "+":
+                                p[0].code.append(
+                                    [
+                                        "addi",
+                                        p[0].place,
+                                        p[3].place,
+                                        p[1].val,
+                                    ]
+                                )
+                            elif lexeme == "-":
+                                p[0].code.append(
+                                    [
+                                        "addi",
+                                        p[0].place,
+                                        p[3].place,
+                                        "-" + p[1].val,
+                                    ]
+                                )
+                            elif lexeme == "*":
+                                p[0].code.append(p[1].code)
+                                cal_token = p[1].place
+                                p[0].code.append(
+                                    [
+                                        "mul",
+                                        p[0].place,
+                                        p[3].place,
+                                        cal_token,
+                                    ]
+                                )
                             p[0].ast = add_edges(p)
 
                         elif p[1].type == "floatconst":
-                            p[0].code = p[3].code
-                            p[0].place = get_token()
-                            p[0].code.append(
-                                [
-                                    "immediate" + "float" + p[2],
-                                    p[0].place,
-                                    p[3].place,
-                                    p[1].place,
-                                ]
-                            )
+                            p[0].code = p[1].code + p[3].code
+                            p[0].place = get_f_token()
+                            cal_token = p[1].place
+
+                            if lexeme == "+":
+                                # p[0].code.append(["li.s",cal_token,p[1].val])
+                                p[0].code.append(
+                                    [
+                                        "add.s",
+                                        p[0].place,
+                                        p[3].place,
+                                        cal_token,
+                                    ]
+                                )
+                            elif lexeme == "-":
+                                # p[0].code.append(["li.s",cal_token,"-"+p[1].val])
+                                p[0].code.append(
+                                    [
+                                        "sub.s",
+                                        p[0].place,
+                                        p[3].place,
+                                        cal_token,
+                                    ]
+                                )
+
+                            elif lexeme == "*":
+                                # p[0].code.append(["li.s",cal_token,p[1].val])
+                                p[0].code.append(
+                                    [
+                                        "mul.s",
+                                        p[0].place,
+                                        p[3].place,
+                                        cal_token,
+                                    ]
+                                )
                             p[0].ast = add_edges(p)
+                        elif p[1].type == "stringconst":
+                            str_len_reg1 = get_token()
+                            str_len_reg = get_token()
+                            ptr_reg = get_token()
+                            p[0].code.append(["move", ptr_reg, p[3].place])
+                            p[0].code.append(["lw", str_len_reg1, "(" + ptr_reg + ")"])
+                            p[0].code.append(
+                                ["addi", str_len_reg, str_len_reg1, len(p[1].val)]
+                            )
+                            new_reg = get_token()
+                            p[0].code.append(["addi", str_len_reg, str_len_reg, 4])
+                            p[0].code.append(["heap_mem", new_reg, str_len_reg])
+                            p[0].place = get_token()
+                            p[0].code.append(["move", p[0].place, new_reg])
+                            p[0].code.append(["addi", str_len_reg, str_len_reg, -4])
+                            p[0].code.append(["sw", str_len_reg, "(" + new_reg + ")"])
+
+                            p[0].code.append(["addi", new_reg, new_reg, 4])
+
+                            p[0].code.append(["addi", ptr_reg, ptr_reg, 4])
+
+                            temp_reg = get_token()
+                            # TODO for loop to be inserted here  number of iterations are in str_len_reg1
+                            # begin loop
+
+                            temp_label = generate_label()
+                            temp_label2 = generate_label()
+                            p[0].code.append(temp_label)
+                            p[0].code.append(["beq", str_len_reg1, "$0", temp_label2])
+                            p[0].code.append(["addi", str_len_reg1, str_len_reg1, -1])
+                            p[0].code.append(["lb", temp_reg, "(" + ptr_reg + ")"])
+                            p[0].code.append(["sb", temp_reg, "(" + new_reg + ")"])
+                            p[0].code.append(["addi", new_reg, new_reg, 1])
+                            p[0].code.append(["addi", ptr_reg, ptr_reg, 1])
+                            p[0].code.append(["j", temp_label])
+                            p[0].code.append(temp_label2)
+
+                            # end loop
+
+                            new_str = p[1].val
+                            for i in range(len(new_str)):
+                                p[0].code.append(["li", temp_reg, new_str[i]])
+                                p[0].code.append(["sb", temp_reg, "(" + new_reg + ")"])
+                                p[0].code.append(["addi", new_reg, new_reg, 1])
+
                         elif p[1].type in ["FLOAT32", "FLOAT64"]:
                             p[0].code = p[1].code + p[3].code
-                            # p[0].code = p[1].code
-                            # p[0].code.append(p[3].code)
-                            p[0].place = get_token()
-                            p[0].code.append(
-                                ["float" + p[2], p[0].place, p[1].place, p[3].place]
-                            )
+                            p[0].place = get_f_token()
+                            if lexeme == "+":
+                                p[0].code.append(
+                                    [
+                                        "add.s",
+                                        p[0].place,
+                                        p[1].place,
+                                        p[3].place,
+                                    ]
+                                )
+                            elif lexeme == "-":
+                                p[0].code.append(
+                                    [
+                                        "sub.s",
+                                        p[0].place,
+                                        p[1].place,
+                                        p[3].place,
+                                    ]
+                                )
+
+                            elif lexeme == "*":
+                                p[0].code.append(
+                                    [
+                                        "mul.s",
+                                        p[0].place,
+                                        p[1].place,
+                                        p[3].place,
+                                    ]
+                                )
                             p[0].ast = add_edges(p)
+                        elif p[1].type == "STRING":
+                            str_len_reg1 = get_token()
+                            str_len_reg2 = get_token()
+                            str_len_reg = get_token()
+
+                            ptr_reg1 = get_token()
+                            ptr_reg2 = get_token()
+                            p[0].code.append(["move", ptr_reg1, p[1].place])
+                            p[0].code.append(["move", ptr_reg2, p[3].place])
+
+                            p[0].code.append(["lw", str_len_reg1, "(" + ptr_reg1 + ")"])
+                            p[0].code.append(["lw", str_len_reg2, "(" + ptr_reg2 + ")"])
+                            p[0].code.append(
+                                ["add", str_len_reg, str_len_reg1, str_len_reg2]
+                            )
+                            p[0].code.append(["addi", str_len_reg, str_len_reg, 4])
+                            new_reg = get_token()
+                            p[0].code.append(["heap_mem", new_reg, str_len_reg])
+                            p[0].place = get_token()
+                            p[0].code.append(["move", p[0].place, new_reg])
+
+                            p[0].code.append(["addi", str_len_reg, str_len_reg, -4])
+                            p[0].code.append(["sw", str_len_reg, "(" + new_reg + ")"])
+                            p[0].code.append(["addi", new_reg, new_reg, 4])
+
+                            p[0].code.append(["addi", ptr_reg1, ptr_reg1, 4])
+
+                            p[0].code.append(["addi", ptr_reg2, ptr_reg2, 4])
+
+                            temp_reg = get_token()
+                            # TODO for loop to be inserted here  number of iterations are in str_len_reg1
+                            # begin loop
+                            temp_label = generate_label()
+                            temp_label2 = generate_label()
+                            p[0].code.append(temp_label)
+                            p[0].code.append(["beq", str_len_reg1, "$0", temp_label2])
+                            p[0].code.append(["addi", str_len_reg1, str_len_reg1, -1])
+                            p[0].code.append(["lb", temp_reg, "(" + ptr_reg1 + ")"])
+                            p[0].code.append(["sb", temp_reg, "(" + new_reg + ")"])
+                            p[0].code.append(["addi", new_reg, new_reg, 1])
+                            p[0].code.append(["addi", ptr_reg1, new_reg, 1])
+
+                            p[0].code.append(["j", temp_label])
+                            p[0].code.append(temp_label2)
+
+                            # TODO for loop to be inserted here  number of iterations are in str_len_reg2
+                            # begin loop
+                            temp_label = generate_label()
+                            temp_label2 = generate_label()
+                            p[0].code.append(temp_label)
+                            p[0].code.append(["beq", str_len_reg2, "$0", temp_label2])
+                            p[0].code.append(["addi", str_len_reg2, str_len_reg2, -1])
+                            p[0].code.append(["lb", temp_reg, "(" + ptr_reg2 + ")"])
+                            p[0].code.append(["sb", temp_reg, "(" + new_reg + ")"])
+                            p[0].code.append(["addi", new_reg, new_reg, 1])
+                            p[0].code.append(["addi", ptr_reg2, new_reg, 1])
+                            p[0].code.append(["j", temp_label])
+                            p[0].code.append(temp_label2)
+
+                            # end loop
                         else:
                             p[0].code = p[1].code + p[3].code
-                            # p[0].code = copy.deepcopy(p[1].code)
-                            # p[0].code.append(p[3].code)
                             p[0].place = get_token()
-                            p[0].code.append(
-                                ["int" + p[2], p[0].place, p[1].place, p[3].place]
-                            )
+                            if lexeme == "+":
+                                p[0].code.append(
+                                    [
+                                        "add",
+                                        p[0].place,
+                                        p[1].place,
+                                        p[3].place,
+                                    ]
+                                )
+                            elif lexeme == "-":
+                                p[0].code.append(
+                                    [
+                                        "sub",
+                                        p[0].place,
+                                        p[1].place,
+                                        p[3].place,
+                                    ]
+                                )
+                            elif lexeme == "*":
+                                p[0].code.append(
+                                    [
+                                        "mul",
+                                        p[0].place,
+                                        p[1].place,
+                                        p[3].place,
+                                    ]
+                                )
                             p[0].ast = add_edges(p)
             else:
                 print_compilation_error(
-                    str(p[1].line_num)
-                    + "COMPILATION ERROR : Incompatible data type with "
-                    + str(p[2])
-                    + " operator",
+                    f"Compilation Error at line {p[1].line_num}: Incompatible data type with {lexeme} operator",
                 )
 
-        if p[2] == "/":
+        if lexeme == "/":
             if equal(p[1].type, p[3].type) != "":
                 if notcomparable(p[1].type):
                     print_compilation_error(
-                        str(p[1].line_num)
-                        + "COMPILATION ERROR : Incomputable data type with "
-                        + str(p[2])
-                        + " operator",
+                        f"Compilation Error at line {p[1].line_num}: Incompatible data type with {lexeme} operator",
                     )
 
                 else:
@@ -3079,96 +4107,69 @@ def p_Expression(p):
                     )
                     if p[1].type == "intconst" and p[3].type == "intconst":
                         p[0].val = str((int(p[1].val) // int(p[3].val)))
-                        p[0].code = []
-                        p[0].place = p[0].val
+                        p[0].place = get_token()
+                        p[0].code.append(["li", p[0].place, p[0].val])
                         p[0].ast = add_edges(p)
                     elif p[1].type == "floatconst" and p[3].type == "floatconst":
                         p[0].val = str((float(p[1].val) / float(p[3].val)))
-                        p[0].code = []
-                        p[0].place = p[0].val
+                        p[0].place = get_f_token()
+                        p[0].code.append(["li.s", p[0].place, p[0].val])
                         p[0].ast = add_edges(p)
                         p[0].ast = add_edges(p)
                     else:
                         if p[3].type == "intconst":
-                            p[0].code = p[1].code
+                            p[0].code = p[1].code + p[3].code
                             p[0].place = get_token()
-                            temp_token = get_token()
-                            p[0].code.append(
-                                ["load immediate ", temp_token, p[3].place]
-                            )
-                            p[0].code.append(
-                                ["int" + p[2], p[0].place, p[1].place, temp_token]
-                            )
+                            p[0].code.append(["div", p[1].place, p[3].place])
+                            p[0].code.append(["mflo", p[0].place])
                             p[0].ast = add_edges(p)
                         elif p[3].type == "floatconst":
-                            p[0].code = p[1].code
-                            p[0].place = get_token()
-                            temp_token = get_token()
+                            p[0].code = p[1].code + p[3].code
+                            p[0].place = get_f_token()
+                            temp_token = p[3].place
                             p[0].code.append(
-                                ["load immediate ", temp_token, p[3].place]
-                            )
-                            p[0].code.append(
-                                ["float" + p[2], p[0].place, p[1].place, temp_token]
+                                ["div.s", p[0].place, p[1].place, temp_token]
                             )
                             p[0].ast = add_edges(p)
                         elif p[1].type == "intconst":
-                            p[0].code = p[3].code
+                            p[0].code = p[1].code + p[3].code
                             p[0].place = get_token()
-                            temp_token = get_token()
-                            p[0].code.append(
-                                ["load immediate ", temp_token, p[1].place]
-                            )
-                            p[0].code.append(
-                                ["int" + p[2], p[0].place, temp_token, p[3].place]
-                            )
+                            p[0].code.append(["div", p[1].place, p[3].place])
+                            p[0].code.append(["mflo", p[0].place])
                             p[0].ast = add_edges(p)
                         elif p[1].type == "floatconst":
-                            p[0].code = p[3].code
-                            p[0].place = get_token()
-                            temp_token = get_token()
+                            p[0].code = p[1].code + p[3].code
+                            p[0].place = get_f_token()
+                            temp_token = p[3].place
                             p[0].code.append(
-                                ["load immediate ", temp_token, p[1].place]
-                            )
-                            p[0].code.append(
-                                ["int" + p[2], p[0].place, temp_token, p[3].place]
+                                ["div.s", p[0].place, p[1].place, temp_token]
                             )
                             p[0].ast = add_edges(p)
 
                         elif p[1].type in ["FLOAT32", "FLOAT64"]:
                             p[0].code = p[1].code + p[3].code
-                            # p[0].code = p[1].code
-                            # p[0].code.append(p[3].code)
-                            p[0].place = get_token()
+                            p[0].place = get_f_token()
                             p[0].code.append(
-                                ["float" + p[2], p[0].place, p[1].place, p[3].place]
+                                ["div.s", p[0].place, p[1].place, p[3].place]
                             )
                             p[0].ast = add_edges(p)
                         else:
                             p[0].code = p[1].code + p[3].code
-                            # p[0].code = p[1].code
-                            # p[0].code.append(p[3].code)
                             p[0].place = get_token()
-                            p[0].code.append(
-                                ["int" + p[2], p[0].place, p[1].place, p[3].place]
-                            )
+                            p[0].code.append(["div", p[1].place, p[3].place])
+                            p[0].code.append(["mflo", p[0].place])
                             p[0].ast = add_edges(p)
             else:
                 print_compilation_error(
-                    str(p[1].line_num)
-                    + "COMPILATION ERROR : Incompatible data type with "
-                    + str(p[2])
-                    + " operator",
+                    f"Compilation Error at line {p[1].line_num}: Incompatible data type with {lexeme} operator",
                 )
 
-        if p[2] == "%":
+        if lexeme == "%":
             if not (
                 isint(p[1].type) and isint(p[3].type)
             ):  # can be int 8, int 32 etc or intconst
                 print_compilation_error(
-                    str(p[1].line_num)
-                    + "COMPILATION ERROR : Incompatible data type with "
-                    + str(p[2])
-                    + " operator",
+                    f"Compilation Error at line {p[1].line_num}: Incompatible data type with {lexeme} operator",
                 )
 
             else:
@@ -3182,48 +4183,32 @@ def p_Expression(p):
                     )
                     if p[1].type == "intconst" and p[3].type == "intconst":
                         p[0].val = str((int(p[1].val) % int(p[3].val)))
-                        p[0].place = p[0].val
-                        p[0].code = []
+                        p[0].place = get_token()
+                        p[0].code.append(["li", p[0].place, p[0].val])
                         p[0].ast = add_edges(p)
                     else:
                         if p[1].type != "intconst" and p[3].type != "intconst":
                             p[0].code = p[1].code + p[3].code
-                            # p[0].code = p[1].code
-                            # p[0].code.append(p[3].code)
                             p[0].place = get_token()
-                            p[0].code.append(
-                                ["int" + p[2], p[0].place, p[1].place, p[3].place]
-                            )
+                            p[0].code.append(["div", p[1].place, p[3].place])
+                            p[0].code.append(["mfhi", p[0].place])
                             p[0].ast = add_edges(p)
                         else:
                             if p[1].type == "intconst":
-                                p[0].code = p[3].code
+                                p[0].code = p[1].code + p[3].code
                                 p[0].place = get_token()
-                                temp_token = get_token()
-                                p[0].code.append(
-                                    ["load immediate ", temp_token, p[1].place]
-                                )
-                                p[0].code.append(
-                                    ["int" + p[2], p[0].place, temp_token, p[3].place]
-                                )
+                                p[0].code.append(["div", p[1].place, p[3].place])
+                                p[0].code.append(["mfhi", p[0].place])
                                 p[0].ast = add_edges(p)
                             else:
-                                p[0].code = p[1].code
+                                p[0].code = p[1].code + p[3].code
                                 p[0].place = get_token()
-                                temp_token = get_token()
-                                p[0].code.append(
-                                    ["load immediate ", temp_token, p[3].place]
-                                )
-                                p[0].code.append(
-                                    ["int" + p[2], p[0].place, p[1].place, temp_token]
-                                )
+                                p[0].code.append(["div", p[1].place, p[3].place])
+                                p[0].code.append(["mfhi", p[0].place])
                                 p[0].ast = add_edges(p)
                 else:
                     print_compilation_error(
-                        str(p[1].line_num)
-                        + "COMPILATION ERROR : Incompatible data type with "
-                        + str(p[2])
-                        + " operator",
+                        f"Compilation Error at line {p[1].line_num}: Incompatible data type with {lexeme} operator",
                     )
 
 
@@ -3247,23 +4232,20 @@ def p_UnaryExpr(p):  #  handle 3AC of STAR , BIT_AND
                 children=[p[2]],
             )
             p[0].ast = add_edges(p)
-            if p[2].type in ["intconst", "floatconst", "stringconst", "boolconst"]:
+            if p[2].type in ["intconst", "floatconst", "stringconst", "boolconst"] or (
+                not (p[2].place.startswith("*"))
+            ):
                 print_compilation_error(
-                    "COMPILATION ERROR at line "
-                    + str(p[1].line_num)
-                    + " cannot dereference variable of type "
-                    + p[2].type
+                    f"Compilation Error at line {p[1].line_num}: Cannot dereference variable of type {p[2].type}"
                 )
             p[0].place = get_token()
-            p[0].code.append(["getaddress", p[0].place, p[2].place])
+            new_tok = p[2].place[1:]
+            p[0].code.append(["move", p[0].place, new_tok])
 
         elif p[1].val == "*":
             if not p[2].type.endswith("*"):
                 print_compilation_error(
-                    "COMPILATION ERROR at line "
-                    + str(p[1].line_num)
-                    + " cannot dereference variable of type "
-                    + p[2].type
+                    f"Compilation Error at line {p[1].line_num}: Cannot dereference variable of type {p[2].type}"
                 )
 
             p[0] = Node(
@@ -3275,7 +4257,8 @@ def p_UnaryExpr(p):  #  handle 3AC of STAR , BIT_AND
             )
             p[0].ast = add_edges(p)
             p[0].place = get_token()
-            p[0].code.append(["dereference", p[0].place, p[2].place])
+            new_tok = "*" + p[2].place
+            p[0].code.append(["move", p[0].place, new_tok])
 
         else:  # check on what this can be applied as well
             p[0] = Node(
@@ -3294,71 +4277,57 @@ def p_UnaryExpr(p):  #  handle 3AC of STAR , BIT_AND
                 ]:
                     if p[2].type == "intconst":
                         p[0].val = str(-1 * int(p[2].val))
-                        p[0].place = p[0].val
+
+                        p[0].place = get_token()
+                        p[0].code.append(["li", p[0].place, p[0].val])
                     if p[1].type == "floatconst":
                         p[0].val = str(-1 * float(p[2].val))
-                        p[0].place = p[0].val
+
+                        p[0].place = get_f_token()
+                        p[0].code.append(["li.s", p[0].place, p[0].val])
                     if isint(p[2].type):
                         p[0].code = p[2].code
                         p[0].place = get_token()
-                        p[0].code.append(
-                            ["immediateint*", p[0].place, p[2].place, "-1"]
-                        )
+                        p[0].code.append(["sub", p[0].place, "$0", p[2].place])
                     else:
                         p[0].code = p[2].code
-                        p[0].place = get_token()
-                        p[0].code.append(
-                            ["immediatefloat*", p[0].place, p[2].place, "-1"]
-                        )
+                        p[0].place = get_f_token()
+                        f_reg = get_f_token()
+                        p[0].code.append(["mtc1", "$0", f_reg])
+                        p[0].code.append(["sub.s", p[0].place, f_reg, p[2].place])
                 else:
                     print_compilation_error(
-                        "COMPILATION ERROR at line "
-                        + str(p[1].line_num)
-                        + " cannot apply  operation of type "
-                        + str(p[1].val)
-                        + "to"
-                        + str(p[2].type )
+                        f"Compilation Error at line {p[1].line_num}: Cannot apply operation of type {p[1].val} to {p[2].type}"
                     )
 
             if p[1].val == "+":
-                if isint(p[2].type) or p[2].type in [
-                    "FLOAT32",
-                    "FLOAT64",
-                    "floatconst",
-                ]:
-                    if p[2].type == "intconst":
-                        p[0].val = str(int(p[2].val))
-                    if p[1].type == "floatconst":
-                        p[0].val = str(*float(p[2].val))
-                else:
+                p[0] = p[2]
+                p[0].ast = add_edges(p)
+                if not (
+                    isint(p[2].type)
+                    or p[2].type
+                    in [
+                        "FLOAT32",
+                        "FLOAT64",
+                        "floatconst",
+                    ]
+                ):
                     print_compilation_error(
-                        "COMPILATION ERROR at line "
-                        + str(p[1].line_num)
-                        + " cannot apply  operation of type "
-                        + str(p[1].val)
-                        + "to"
-                        + str(p[2].type)
+                        f"Compilation Error at line {p[1].line_num}: Cannot apply operation of type {p[1].val} to {p[2].type}"
                     )
 
             if p[1].val == "!":
                 if p[2].type in ["boolconst"]:
-                    if p[2].val == "True":
-                        p[0].val = "False"
-                    if p[2].val == "False":
-                        p[0].val = "True"
-                    p[0].place = p[0].val
+                    p[0].place = get_token()
+                    p[0].val = str(1 - int(p[0].val))
+                    p[0].code.append(["li", p[0].place, p[0].val])
                 elif p[2].type == "BOOL":
                     p[0].place = get_token()
                     p[0].code = p[2].code
-                    p[0].code.append([p[1], p[2].place, p[0].place])
+                    p[0].code.append(["xori", p[0].place, p[2].place, "1"])
                 else:
                     print_compilation_error(
-                        "COMPILATION ERROR at line "
-                        + str(p[1].line_num)
-                        + " cannot apply  operation of type "
-                        + str(p[1].val)
-                        + "to"
-                        + str(p[2].type)
+                        f"Compilation Error at line {p[1].line_num}: Cannot apply operation of type {p[1].val} to {p[2].type}"
                     )
 
 
@@ -3378,6 +4347,7 @@ def p_unary_op(p):
 # def p_UnaryExpr_1(p):
 #     """UnaryExpr : Type Expression"""
 # 5.
+## TODO:
 def p_ShortVarDecl(p):
     """ShortVarDecl : IDENTIFIER COLON_ASSIGN Expression"""
     #    | IDENTIFIER COLON_ASSIGN Make_Func"""
@@ -3386,7 +4356,7 @@ def p_ShortVarDecl(p):
     global _current_size
 
     lexeme = ""
-    if p[1] is tuple:
+    if type(p[1]) is tuple:
         lexeme = p[1][0]
     else:
         lexeme = p[1]
@@ -3394,11 +4364,7 @@ def p_ShortVarDecl(p):
     # TODO handle slice
     if lexeme in SYMBOL_TABLE[_current_scope].keys():
         print_compilation_error(
-            "COMPILATION ERROR at line "
-            + str(p.lineno(1))
-            + " : "
-            + str(lexeme)
-            + " already declared "
+            f"Compilation Error at line {p.lineno(1)}: {lexeme} is already declared"
         )
 
     p[0] = Node(name="VarSpec", val="", type="", line_num=p.lineno(1), children=[])
@@ -3493,12 +4459,32 @@ def p_ShortVarDecl(p):
 
 def p_func_decl(p):
     """FunctionDecl : funcBegin FunctionName Signature  FunctionBody"""
+
+    # arg_list = []
+    # for i in p[3].children:
+    #     arg_list.append(i.type)
     p[0] = Node(name="FunctionDecl", val="", type="", children=[], line_num=p.lineno(1))
 
     # arg_list = []
     # for i in p[3].children:
     #     arg_list.append(i.type)
     p[0].ast = add_edges(p)
+
+    p[0].code = [[SYMBOL_TABLE[0][_current_function_name]["jumpLabel"]]]
+    ###################
+    p[0].code += [["addi", "$sp", "$sp", -4]]
+    p[0].code += [["sw", "$fp", "($sp)"]]
+    p[0].code += [["addi", "$fp", "$sp", 4]]
+    p[0].code += [["addi", "$sp", "$sp", -4]]
+    p[0].code += [["sw", "$ra", "($sp)"]]
+    ###################
+    p[0].code += p[4].code
+    ###################
+    p[0].code += [["lw", "$ra", -8, "($fp)"]]
+    p[0].code += [["move" "$sp", "$fp"]]
+    p[0].code += [["lw", "$fp", -4, "($fp)"]]
+    p[0].code += [["jr", "$ra"]]
+    ###################
 
     global _current_scope
     global _current_size
@@ -3507,12 +4493,15 @@ def p_func_decl(p):
     _global_sp -= _current_size[_current_scope]
     _current_scope = _parent[_current_scope]
 
-    p[0].code = p[4].code
+    global _main_declared
+
+    if p[2].name == "main":
+        _main_declared = False
 
     # check if the function already exists else add to symbol table
     # if p[2].val in SYMBOL_TABLE[0].keys():
     #     print_compilation_error(
-    #         "COMPILATION ERROR at line :"
+    #         "Compilation Error at line :"
     #         + str(p[2].line_num)
     #         + ": function : "
     #         + p[2].val
@@ -3552,7 +4541,7 @@ def p_FunctionName(p):
     global _current_function_name
 
     lexeme = ""
-    if p[1] is tuple:
+    if type(p[1]) is tuple:
         lexeme = p[1][0]
     else:
         lexeme = p[1]
@@ -3566,11 +4555,7 @@ def p_FunctionName(p):
 
     if lexeme in SYMBOL_TABLE[0].keys():
         print_compilation_error(
-            "COMPILATION ERROR at line :"
-            + str(p.lineno(1))
-            + ": function : "
-            + str(lexeme)
-            + " already declared"
+            f"Compilation Error at line {p.lineno(1)}: Function name {lexeme} is already declared"
         )
 
     else:
@@ -3613,9 +4598,7 @@ def p_Signature(p):
 
         if child.val in SYMBOL_TABLE[_current_scope].keys():
             print_compilation_error(
-                "COMPILATION ERROR at line :"
-                + str(child.line_num)
-                + " function argument already declared"
+                f"Compilation Error at line {child.line_num}: Function argument {child.val} is already declared"
             )
 
         SYMBOL_TABLE[_current_scope][child.val] = {}
@@ -3673,7 +4656,7 @@ def p_Parameters(p):
 def p_ParameterDecl(p):
     """ParameterDecl : IDENTIFIER Type"""
     lexeme = ""
-    if p[1] is tuple:
+    if type(p[1]) is tuple:
         lexeme = p[1][0]
     else:
         lexeme = p[1]
@@ -3723,7 +4706,7 @@ def p_IfStmt_1(p):
     global _current_scope
     global _parent
 
-    _global_sp -= _current_size[_current_scope] 
+    _global_sp -= _current_size[_current_scope]
     _current_scope = _parent[_current_scope]
     p[0].ast = add_edges(p)
 
@@ -3731,35 +4714,54 @@ def p_IfStmt_1(p):
     exit_label = generate_label()
 
     if len(p) == 4:
+
+        if p[2].type != "BOOL" and p[2].type != "boolconst":
+            print_compilation_error(
+                f"Compilation Error at line {p.lineno(1)}: If condition should have a bool expression"
+            )
+
         p[0].code = p[2].code
-        newlabel = p[2].false  # to be implemented
-        p[0].code.append(["if", p[2].place, "==", "False", "goto", newlabel])
+        newlabel = p[2].falselabel  # to be implemented
+
+        p[0].code.append(["beq", p[2].place, "$0", newlabel])
+
         p[0].code.append([p[2].true])
         p[0].code += p[3].code
-        p[0].code.append(["goto", exit_label])
+        p[0].code.append(["j", exit_label])
         p[0].code.append([newlabel])
         p[0].code.append([exit_label])
 
     elif len(p) == 6:
+
+        if p[4].type != "BOOL" and p[4].type != "boolconst":
+            print_compilation_error(
+                f"Compilation Error at line {p.lineno(1)}: If condition should have a bool expression"
+            )
+
         p[0].code = p[2].code
         p[0].code += p[4].code
         newlabel = p[4].false  # to be implemented
-        p[0].code.append(["if", p[4].place, "==", "False", "goto", newlabel])
+        p[0].code.append(["beq", p[2].place, "$0", newlabel])
         p[0].code.append([p[4].true])
         p[0].code += p[5].code
-        p[0].code.append(["goto", exit_label])
+        p[0].code.append(["j", exit_label])
         p[0].code.append([newlabel])
         p[0].code.append([exit_label])
 
     elif len(p) == 8:
+
+        if p[4].type != "BOOL" and p[4].type != "boolconst":
+            print_compilation_error(
+                f"Compilation Error at line {p.lineno(1)}: If condition should have a bool expression"
+            )
         p[0].code = p[2].code
         p[0].code += p[4].code
         newlabel = p[4].false  # to be implemented
-        p[0].code.append(["if", p[4].place, "==", "False", "goto", newlabel])
+        p[0].code.append(["beq", p[2].place, "$0", newlabel])
         p[0].code.append([p[4].true])
         p[0].code += p[5].code
         newlabel1 = generate_label()
-        p[0].code.append(["goto", newlabel1])
+        p[0].code.append(["j", newlabel1])
         p[0].code.append([newlabel])
         p[0].code += p[5].code
         p[0].code.append([newlabel1])
@@ -3774,34 +4776,45 @@ def p_IfStmt_2(p):
     global _global_sp
     global _current_scope
 
-    _global_sp -= _current_size[_current_scope] 
+    _global_sp -= _current_size[_current_scope]
     _current_scope = _parent[_current_scope]
     p[0].ast = add_edges(p)
 
     ## can apply type check if required
 
     if len(p) == 6:
-        p[0].code = p[2].code
-        newlabel = p[2].false  # to be implemented
-        p[0].code.append(["if", p[2].place, "==", "False", "goto", newlabel])
 
-        p[0].code.append([p[2].true])
+        if p[2].type != "BOOL" and p[2].type != "boolconst":
+            print_compilation_error(
+                f"Compilation Error at line {p.lineno(1)}: If condition should have a bool expression"
+            )
+
+        p[0].code = p[2].code
+        newlabel = p[2].falselabel  # to be implemented
+        p[0].code.append(["beq", p[2].place, "$0", newlabel])
+
+        p[0].code.append([p[2].truelabel])
         p[0].code += p[3].code
         newlabel1 = generate_label()
-        p[0].code.append(["goto", newlabel1])
+        p[0].code.append(["j", newlabel1])
         p[0].code.append([newlabel])
         p[0].code += p[5].code
         p[0].code.append([newlabel1])
 
     else:
+        if p[4].type != "BOOL" and p[4].type != "boolconst":
+            print_compilation_error(
+                f"Compilation Error at line {p.lineno(1)}: If condition should have a bool expression"
+            )
+
         p[0].code = p[2].code
         p[0].code += p[4].code
         newlabel = p[4].false  # to be implemented
-        p[0].code.append(["if", p[4].place, "==", "False", "goto", newlabel])
+        p[0].code.append(["beq", p[2].place, "$0", newlabel])
         p[0].code.append([p[4].true])
         p[0].code += p[5].code
         newlabel1 = generate_label()
-        p[0].code.append(["goto", newlabel1])
+        p[0].code.append(["j", newlabel1])
         p[0].code.append([newlabel])
         p[0].code += p[5].code
         p[0].code.append([newlabel1])
@@ -3818,15 +4831,19 @@ def p_IfStmt_3(p):
     _current_scope = _parent[_current_scope]
     p[0].ast = add_edges(p)
 
-    ## can apply type chek if required
+    if p[2].type != "BOOL" and p[2].type != "boolconst":
+        print_compilation_error(
+            f"Compilation Error at line {p.lineno(1)}: If condition should have a bool expression"
+        )
+
     p[0].code = p[2].code
     newlabel = p[2].false  # to be implemented
-    p[0].code.append(["if", p[2].place, "==", "False", "goto", newlabel])
+    p[0].code.append(["beq", p[2].place, "$0", newlabel])
 
     p[0].code.append([p[2].true])
     p[0].code += p[3].code
     newlabel1 = generate_label()
-    p[0].code.append(["goto", newlabel1])
+    p[0].code.append(["j", newlabel1])
     p[0].code.append([newlabel])
     p[0].code += p[5].code
     p[0].code.append([newlabel1])
@@ -3876,12 +4893,7 @@ def p_SwitchStmt(p):
             for child in p[4].children:
                 if child.type != "default" and equal(p[2].type, child.type) == "":
                     print_compilation_error(
-                        "COMPILATION ERROR at line "
-                        + str(child.line_num)
-                        + ", Expression type: "
-                        + str(p[2].type)
-                        + "doesn't match with Case type:"
-                        + str(child.type)
+                        f"Compilation Error at line {child.line_num}: Expression type ({p[2].type}) doesn't match with case type ({child.type})"
                     )
 
             p[0].code = p[2].code + p[4].code
@@ -3966,9 +4978,7 @@ def p_ExprSwitchCase(p):
             p[0].type = p[2].children[0].type
         else:
             print_compilation_error(
-                "COMPILATION ERROR at line "
-                + str(p[0].line_num)
-                + " labels of switch case have different type "
+                f"Compilation Error at line {p[0].line_num}: Labels of switch case have different type"
             )
 
     else:
@@ -3992,15 +5002,15 @@ def p_ExprCaseClause(p):
     p[0].code = p[1].code
 
     if p[1].type == "default":
-        p[0].code.append(["goto", newlabel])
+        p[0].code.append(["j", newlabel])
     else:
         for i in p[1].placelist:
-            p[0].code.append(["if", _current_switch_place, "==", i, "goto", newlabel])
+            p[0].code.append(["beq", _current_switch_place, i, newlabel])
 
-    p[0].code.append(["goto", newlabel1])
+    p[0].code.append(["j", newlabel1])
     p[0].code.append([newlabel])
     p[0].code += p[3].code
-    p[0].code.append(["goto", _exit_label_switch])
+    p[0].code.append(["j", _exit_label_switch])
     p[0].code.append([newlabel1])
 
     p[0].type = p[1].type
@@ -4036,17 +5046,15 @@ def p_ForStmt_1(p):
     ## TODO of the expression doesn't evaluate a true or false value then it wont work
     if len(p) == 3:
         p[0].code += p[2].code
-        p[0].code.append(["goto", _continue_label[_loop_depth]])
+        p[0].code.append(["j", _continue_label[_loop_depth]])
         p[0].code.append([_break_label[_loop_depth]])
 
     ## TODO what would be it be "False" || "FALSE" || "false"
     else:
         p[0].code += p[1].code
-        p[0].code.append(
-            ["if", p[2].place, "==", "False", "goto", _break_label[_loop_depth]]
-        )
+        p[0].code.append(["beq", p[2].place, "$0", _break_label[_loop_depth]])
         p[0].code += p[2].code
-        p[0].code.append(["goto", _continue_label[_loop_depth]])
+        p[0].code.append(["j", _continue_label[_loop_depth]])
         p[0].code.append([_break_label[_loop_depth]])
 
     _loop_depth -= 1
@@ -4072,7 +5080,7 @@ def p_ForStmt_2(p):
     if len(p[2].update) != 0:
         p[0].code += p[2].update
 
-    p[0].code.append(["goto", _continue_label[_loop_depth]])
+    p[0].code.append(["j", _continue_label[_loop_depth]])
     p[0].code.append([_break_label[_loop_depth]])
 
     _loop_depth -= 1
@@ -4124,7 +5132,7 @@ def p_ForClause_1(p):
     | SimpleStmt SEMICOLON             SEMICOLON
     |            SEMICOLON             SEMICOLON
     """
-    if(type(p) is Node):
+    if type(p) is Node:
         line_num = max(p[1].line_num, p.lineno(1))
     else:
         line_num = p.lineno(1)
@@ -4145,11 +5153,13 @@ def p_ForClause_1(p):
         p[0].code.append([_continue_label[_loop_depth]])
 
         if len(p) == 6:
+            if p[3].type != "BOOL" and p[3].type != "boolconst":
+                print_compilation_error(
+                    f"Compilation Error at line {p.lineno(1)}: For loop predicate should have a bool expression"
+                )
             p[0].code += p[3].code
             # p[0].code.append(p[3].code)
-            p[0].code.append(
-                ["if", p[3].place, "==", "False", "goto", _break_label[_loop_depth]]
-            )
+            p[0].code.append(["beq", p[3].place, "$0", _break_label[_loop_depth]])
             # TODO update instruction add to node
             p[0].update = p[5].code
 
@@ -4161,7 +5171,7 @@ def p_ForClause_2(p):
     """ForClause :             SEMICOLON             SEMICOLON SimpleStmt
     | SimpleStmt SEMICOLON  Expression SEMICOLON
     """
-    if(type(p) is Node):
+    if type(p) is Node:
         line_num = max(p[1].line_num, p.lineno(1))
     else:
         line_num = p.lineno(1)
@@ -4178,19 +5188,21 @@ def p_ForClause_2(p):
         p[0].code.append([_continue_label[_loop_depth]])
         p[0].update = p[3].code
     else:
+        if p[3].type != "BOOL" and p[3].type != "boolconst":
+            print_compilation_error(
+                f"Compilation Error at line {p.lineno(1)}: For loop predicate should have a bool expression"
+            )
         p[0].code = p[1].code + p[3].code
         p[0].code.append([_continue_label[_loop_depth]])
         # p[0].code.append(p[3].code)
-        p[0].code.append(
-            ["if", p[3].place, "==", "False", "goto", _break_label[_loop_depth]]
-        )
+        p[0].code.append(["beq", p[3].place, "$0", _break_label[_loop_depth]])
 
 
 def p_ForClause_3(p):
     """ForClause :            SEMICOLON  Expression SEMICOLON SimpleStmt
     |            SEMICOLON  Expression SEMICOLON
     """
-    if(type(p) is Node):
+    if type(p) is Node:
         line_num = max(p[1].line_num, p.lineno(1))
     else:
         line_num = p.lineno(1)
@@ -4203,19 +5215,20 @@ def p_ForClause_3(p):
     global _break_label
     global _continue_label
 
+    if p[2].type != "BOOL" and p[2].type != "boolconst":
+        print_compilation_error(
+            f"Compilation Error at line {p.lineno(1)}: For loop predicate should have a bool expression"
+        )
+
     if len(p) == 4:
         p[0].code.append([_continue_label[_loop_depth]])
         p[0].code += p[2].code
-        p[0].code.append(
-            ["if", p[2].place, "==", "False", "goto", _break_label[_loop_depth]]
-        )
+        p[0].code.append(["beq", p[2].place, "$0", _break_label[_loop_depth]])
 
     else:
         p[0].code.append([_continue_label[_loop_depth]])
         p[0].code += p[2].code
-        p[0].code.append(
-            ["if", p[2].place, "==", "False", "goto", _break_label[_loop_depth]]
-        )
+        p[0].code.append(["beq", p[2].place, "$0", _break_label[_loop_depth]])
         p[0].update = p[4].code
 
 
@@ -4237,7 +5250,7 @@ def p_ForClause_3(p):
 def p_error(p):
     if p:
         print_compilation_error(
-            "Syntax error at token " + str(p.type) + "  Line Number  " + str(p.lineno)
+            f"Syntax Error at line {p.lineno}: Invalid token {p.type}"
         )
         # Just discard the token and tell the parser it's okay.
         # parser.errok()
@@ -4275,7 +5288,7 @@ parser = yacc.yacc()
 
 def main():
     # try:
-    global _3ac_code
+    global _mips_code
     global _symbol_table_dump_filename
     global _ast_filename
     global _ast_plot_filename
@@ -4320,7 +5333,7 @@ def main():
     pprint(SYMBOL_TABLE)
 
     print_success("> 3AC Code")
-    pprint(_3ac_code)
+    pprint(_mips_code)
 
     graphs = pydot.graph_from_dot_file(_ast_filename)
     graph = graphs[0]
@@ -4328,7 +5341,7 @@ def main():
 
     dump_symbol_table()
 
-    write_ircode(_ircode_filename, _3ac_code)
+    write_ircode(_ircode_filename, _mips_code)
 
     print(
         f"> Dump of the Symbol Table has been saved as '{_symbol_table_dump_filename}'"

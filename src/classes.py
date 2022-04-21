@@ -40,6 +40,8 @@ class Node:
         place: str = "",
         dims: List = [],
         placelist: List = [],
+        truelabel: str = "",
+        falselabel: str = ""
     ):
         self.name = name
         self.val = val
@@ -54,6 +56,8 @@ class Node:
         self.place = place
         self.dims = dims
         self.placelist = placelist
+        self.truelabel = truelabel
+        self.falselabel = falselabel
         if children:
             self.children = children
         else:

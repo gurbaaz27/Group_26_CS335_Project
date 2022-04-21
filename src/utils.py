@@ -148,9 +148,49 @@ def equal(s1, s2):
     return ""
 
 
-def write_ircode(filename : str, ircode):
+def write_ircode(filename: str, ircode):
     with open(filename, "w") as f:
         for line in ircode:
             for word in line:
                 f.write(str(word) + " ")
             f.write("\n")
+
+
+def get_store_instruction(s):
+    if s == "INT":
+        return "sw"
+    elif s == "INT8":
+        return "sb"
+    elif s == "INT16":
+        return "sh"
+    elif s == "INT32":
+        return "sw"
+    elif s == "INT64":
+        return "sw"
+    elif s == "UINT":
+        return "sw"
+    elif s == "UINT8":
+        return "sb"
+    elif s == "UINT16":
+        return "sh"
+    elif s == "UINT32":
+        return "sw"
+    elif s == "UINT64":
+        return "sw"
+
+
+def equalarray(p, q):
+    temp1 = p.split()
+    temp2 = q.split()
+    if len(temp1) != len(temp2):
+        return False
+    for i in range(len(temp1) - 1):
+        if temp1[i] != temp2[i]:
+            return False
+    if equal(temp1[-1], temp2[-1]) == "":
+        return False
+    return True
+
+
+def getsize(a):
+    pass
