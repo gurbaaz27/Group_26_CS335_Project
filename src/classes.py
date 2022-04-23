@@ -41,7 +41,7 @@ class Node:
         dims: List = [],
         placelist: List = [],
         truelabel: str = "",
-        falselabel: str = ""
+        falselabel: str = "",
     ):
         self.name = name
         self.val = val
@@ -58,6 +58,7 @@ class Node:
         self.placelist = placelist
         self.truelabel = truelabel
         self.falselabel = falselabel
+        self.isconst = False
         if children:
             self.children = children
         else:

@@ -10,6 +10,7 @@ __description__ = "Helper/Utility functions for compiler."
 
 
 import sys
+from pprint import pprint
 
 from constants import TOKENS_TO_IGNORE
 from classes import Format
@@ -148,15 +149,32 @@ def equal(s1, s2):
     return ""
 
 
-def write_ircode(filename: str, ircode):
+def write_code(filename: str, mipscode):
+    indent = " " * 4
+    flag = False
     with open(filename, "w") as f:
-        for line in ircode:
-            for word in line:
-                f.write(str(word) + " ")
-            f.write("\n")
+        for line in mipscode:
+            code = ""
+            if line[0].startswith("__LABEL"):
+                for word in line:
+                    code += str(word)
+            else:
+                for word in line:
+                    code += str(word) + " "
+
+            if flag:
+                f.write(indent + code + "\n")
+            else:
+                f.write(code + "\n")
+
+            pre = line[0]
+            if pre == "":
+                flag = False
+            if pre.startswith("__func_") or pre.startswith(".data"):
+                flag = True
 
 
-def get_store_instruction(s):
+def get_store_instruction(s: str):
     if s == "INT":
         return "sw"
     elif s == "INT8":
@@ -177,6 +195,27 @@ def get_store_instruction(s):
         return "sw"
     elif s == "UINT64":
         return "sw"
+    elif s == "FLOAT32":
+        return "s.s"
+    elif s == "FLOAT64":
+        return "s.s"
+    elif s.endswith("*"):
+        return "sw"
+    elif s == "BOOL":
+        return "sb"
+    elif s == "STRING":
+        return "sw"
+    else:
+        return "not defined yet"
+
+
+def get_load_instruction(size):
+    if size == 4:
+        return "lw"
+    elif size == 2:
+        return "lh"
+    elif size == 1:
+        return "lb"
 
 
 def equalarray(p, q):
@@ -192,5 +231,9 @@ def equalarray(p, q):
     return True
 
 
-def getsize(a):
-    pass
+def get_function_label(function_name):
+    return "__func_" + function_name
+
+
+def get_global_label(variable_name):
+    return "__global_" + variable_name

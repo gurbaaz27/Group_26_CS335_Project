@@ -15,14 +15,20 @@ from pprint import pprint
 import ply.yacc as yacc
 from lexer import tokens
 from constants import (
-    IRCODE_FILENAME,
+    MIPS_PRINTF,
+    MIPS_SCANF,
+    MIPSCODE_FILENAME,
     SYMBOL_TABLE_DUMP_FILENAME,
     AST_FILENAME,
     AST_PLOT_FILENAME,
+    MAIN_FUNCTION,
+    INBUILT_FUNCTIONS,
 )
 from classes import Node
 from utils import (
-    write_ircode,
+    get_global_label,
+    get_load_instruction,
+    write_code,
     write_label,
     write_edge,
     ignore_lexer_literal,
@@ -36,7 +42,7 @@ from utils import (
     equal,
     get_store_instruction,
     equalarray,
-    getsize,
+    get_function_label,
 )
 import pydot
 import copy
@@ -48,15 +54,17 @@ import copy
 ## file io related
 
 _main_declared = False
+_global_code_list = []
 _global_variables = {}
 
 _symbol_table_dump_filename = ""
 _ast_filename = ""
 _ast_plot_filename = ""
-_ircode_filename = ""
+_mipscode_filename = ""
 
 ## compiler related
 
+NUM_REGISTERS = 8
 SYMBOL_TABLE = []
 SYMBOL_TABLE.append({})
 array_init_list = []
@@ -64,7 +72,9 @@ array_init_list = []
 _mips_code = ""
 
 _global_sp = 0
-_current_size = {}
+_current_size = {
+    0: 0,
+}
 
 _current_function_return_type = ""
 _current_function_name = ""
@@ -82,7 +92,6 @@ _loop_depth = 0
 _switch_depth = 0
 _current_switch_place = ""
 _exit_label_switch = ""
-_return_label = ""
 _break_label = {}
 _continue_label = {}
 
@@ -97,17 +106,17 @@ _size = {
     "INT8": 1,
     "INT16": 2,
     "INT32": 4,
-    "INT64": 8,
-    "INT": 8,
+    "INT64": 4,
+    "INT": 4,
     "UINT8": 1,
     "UINT16": 2,
     "UINT32": 4,
-    "UINT64": 8,
-    "UINT": 8,
+    "UINT64": 4,
+    "UINT": 4,
     "FLOAT32": 4,
-    "FLOAT64": 8,
+    "FLOAT64": 4,
     "BOOL": 1,
-    "STRING": 100,
+    "STRING": 4,
 }
 
 start_node = Node("START", val="", type="", children=[])
@@ -153,12 +162,25 @@ precedence = (
 )
 
 
-def find_addr_of_variable(a, b):
-    pass
-
-
 def get_pointer_for_stringconst(a, b):
     pass
+
+
+def pad(curr_offset, typ):
+    if typ.startswith("ARRAY"):
+        temp = typ.split()
+        typ = temp[-1]
+        if len(temp) > 1 and temp[-2] == "struct":
+            typ = "struct " + typ
+
+    siz = 0
+    # If type is struct always ensure offset is multiple of 8
+    if typ.endswith("*") or typ.startswith("struct"):
+        siz = 4
+    else:
+        siz = _size[typ]
+    dif = (siz - curr_offset % siz) % siz
+    return dif
 
 
 def DSU_create(i):
@@ -206,7 +228,7 @@ def get_id_token():
 
 def generate_label():
     global _label_counter
-    label = "LABEL " + str(_label_counter)
+    label = "__LABEL_" + str(_label_counter)
     _label_counter = _label_counter + 1
     DSU_create(label)
     return label
@@ -300,12 +322,103 @@ def find_scope(id, lineno):
     return -1
 
 
+def getsize(_type):
+    temp = _type.split()
+    i = 0
+    Size = 0
+    typ = ""
+    Quant = 1
+    while temp[i] == "ARRAY":
+        typ = typ + " ARRAY"
+        i = i + 1
+        # dim.append(int(temp[i]))
+        typ = typ + " " + temp[i]
+        Quant *= int(temp[i])
+        i = i + 1
+    isStruct = ""
+    if temp[i] == "struct":
+        typ = typ + " struct"
+        i = i + 1
+        isStruct = "struct "
+    typ = typ + " " + temp[i]
+    typ = typ.strip()
+    if temp[i].endswith("*"):
+        Size += Quant * 4
+    else:
+        Size += Quant * _size[isStruct + temp[i]]
+    return Size
+
+
+def find_addr_of_variable(lexeme, reg):
+    scope = declared_indentifier(lexeme, 0)
+    if scope == 0:
+        code = ["la", reg[1:-2], get_global_label(lexeme)]
+        return code
+    else:
+        off = SYMBOL_TABLE[scope][lexeme]["offset"]
+        code = ["addi", reg[1:-2], "$fp", -off]
+        return code
+
+
 def p_start(p):
     """start : SourceFile"""
     global _mips_code
 
     p[0] = p[1]
     _mips_code = p[0].code
+    new_mips_code = []
+
+    write_code("before.s", _mips_code)
+
+    for i in range(len(_mips_code)):
+        if len(_mips_code[i]) == 0:
+            new_mips_code.append(_mips_code[i])
+            continue
+        if _mips_code[i][0].startswith("__LABEL"):
+            if i > 0 and (
+                len(_mips_code[i - 1]) != 0
+                and _mips_code[i - 1][0].startswith("__LABEL")
+            ):
+                DSU_merge(_mips_code[i - 1][0], _mips_code[i][0])
+            else:
+                _mips_code[i].append(":")
+                new_mips_code.append(_mips_code[i])
+
+        else:
+            new_mips_code.append(_mips_code[i])
+
+    _mips_code = new_mips_code
+    new_mips_code = []
+    for i in range(len(_mips_code)):
+        for j in range(len(_mips_code[i])):
+            if type(_mips_code[i][j]) is str:
+                if _mips_code[i][j].startswith("__LABEL"):
+                    _mips_code[i][j] = DSU_find(_mips_code[i][j])
+
+    for i in range(len(_mips_code)):
+        for j in range(len(_mips_code[i])):
+            if type(_mips_code[i][j]) is str:
+                curr = _mips_code[i][j]
+                if curr.startswith("("):
+                    curr = curr[1:-2]
+                temp = []
+                while curr.startswith("*"):
+                    temp.append(curr[-1])
+                    curr = curr[1:-2]
+                temp.reverse()
+                for siz in temp:
+                    new_mips_code.append(
+                        [get_load_instruction(int(siz)), curr, "(" + curr + ")"]
+                    )
+                if _mips_code[i][j].startswith("("):
+                    _mips_code[i][j] = "(" + curr + ")"
+                else:
+                    _mips_code[i][j] = curr
+
+        new_mips_code.append(_mips_code[i])
+    _mips_code = new_mips_code
+
+    write_code("after.s", _mips_code)
 
 
 def p_empty(p):
@@ -555,15 +668,16 @@ def p_Block(p):
     global _global_sp
     global _current_size
 
-    _global_sp -= _current_size[_current_scope]
-    _current_scope = _parent[_current_scope]
-
     p[0] = Node(name="Block", val="", line_num=p.lineno(1), type="", children=[])
     p[0].ast = add_edges(p)
 
     if type(p[2]) is Node:
         if p[2].name == "StatementList":
             p[0].code = p[2].code
+            p[0].code.append(["addi", "$sp", "$sp", _current_size[_current_scope]])
+
+    _global_sp -= _current_size[_current_scope]
+    _current_scope = _parent[_current_scope]
 
 
 def p_StatementList(p):
@@ -625,7 +739,6 @@ def p_ReturnStmt(p):
             )
 
     else:
-
         if p[2].type != "" and _current_function_return_type != p[2].type:
             print_compilation_error(
                 f"Compilation Error at line {p.lineno(1)}: Function return type is not {p[2].type}"
@@ -635,6 +748,16 @@ def p_ReturnStmt(p):
             name="ReturnStmt", val="", type="", line_num=p.lineno(1), children=[]
         )
         p[0].ast = add_edges(p, [2])
+
+        p[0].code += [["move", "$v0", p[2].place]]
+
+    ###################
+    p[0].code += [["lw", "$ra", -8, "($fp)"]]
+    p[0].code += [["move", "$sp", "$fp"]]
+    p[0].code += [["lw", "$fp", -4, "($fp)"]]
+    p[0].code += [["jr", "$ra"]]
+    p[0].code += [[""]]
+    ###################
 
 
 ## BREAK STATEMENT
@@ -663,9 +786,9 @@ def p_BreakStmt(p):
                 f"Compilation Error at line {p[0].line_num}: Break argument exceeds the number of loops"
             )
 
-        p[0].code = [["goto", _break_label[_loop_depth + 1 - int(p[2].place)]]]
+        p[0].code = [["j", _break_label[_loop_depth + 1 - int(p[2].place)]]]
     else:
-        p[0].code = [["goto", _break_label[_loop_depth]]]
+        p[0].code = [["j", _break_label[_loop_depth]]]
 
 
 ## CONTINUE STATEMENT
@@ -682,7 +805,7 @@ def p_ContinueStmt(p):
             f"Compilation Error at line {p[0].line_num}: Continue is not inside a loop"
         )
 
-    p[0].code = [["goto", _continue_label[_loop_depth]]]
+    p[0].code = [["j", _continue_label[_loop_depth]]]
 
 
 ## DECLARATION
@@ -770,14 +893,46 @@ def p_TopLevelDeclList_2(p):
 #     p[0].ast = add_edges(p)
 
 
+def p_Package(p):
+    """Package : PACKAGE"""
+    for function in INBUILT_FUNCTIONS:
+        SYMBOL_TABLE[0][function] = {}
+        SYMBOL_TABLE[0][function]["jumpLabel"] = get_function_label(function)
+        SYMBOL_TABLE[0][function]["func"] = 1
+        SYMBOL_TABLE[0][function]["type"] = "void"
+
+
 def p_SourceFile(p):
-    """SourceFile : PACKAGE IDENTIFIER TopLevelDeclList"""
-    # """SourceFile : PACKAGE IDENTIFIER EOS ImportDeclList TopLevelDeclList"""
+    """SourceFile : Package IDENTIFIER EOS TopLevelDeclList"""
+    # """SourceFile : Package IDENTIFIER EOS ImportDeclList TopLevelDeclList"""
     global _global_variables
+    global _main_declared
+
     p[0] = Node(name="SourceFile", val="", type="", line_num=p.lineno(1), children=[])
     p[0].ast = add_edges(p)
-    p[0].code = [[".text", ".globl main"]]
-    p[0].code += p[5].code
+
+    if type(p[2]) is tuple:
+        package = p[2][0]
+    else:
+        package = p[2]
+
+    if package == MAIN_FUNCTION and not _main_declared:
+        print_compilation_error(
+            f"Compilation Error at line {p.lineno(1)}: Function {MAIN_FUNCTION} is undeclared in the {MAIN_FUNCTION} package"
+        )
+
+    p[0].code = [[".data"]]
+
+    for k, v in _global_variables.items():
+        p[0].code += [[k + ":", ".space", v]]
+
+    p[0].code += [[""]]
+    p[0].code += [[".text"], [f".globl {get_function_label(MAIN_FUNCTION)}"], [""]]
+    p[0].code += p[3].code
+    p[0].code += [[""]]
+    p[0].code += MIPS_SCANF
+    p[0].code += [[""]]
+    p[0].code += MIPS_PRINTF
 
 
 ## 1. ConstDecl
@@ -793,6 +948,11 @@ def p_ConstSpec(p):
     | IDENTIFIER ASSIGN Expression"""
     global _global_sp
     global _current_size
+
+    p[0] = Node(name="ConstSpec", val="", type="", line_num=p.lineno(1), children=[])
+    p[0].ast = add_edges(p)
+
+    prev_global_sp = _global_sp
 
     lexeme = ""
     if type(p[1]) is tuple:
@@ -854,20 +1014,24 @@ def p_ConstSpec(p):
                     f"Compilation Error at line {p.lineno(1)}: Cannot declare an array constant"
                 )
 
+        temp_pad = pad(_global_sp, p[2].type)
+        _global_sp += temp_pad
+        _current_size[_current_scope] += temp_pad
+
         if not p[2].type.startswith("ARRAY"):
             SYMBOL_TABLE[_current_scope][lexeme] = {}
             SYMBOL_TABLE[_current_scope][lexeme]["type"] = p[2].type
             SYMBOL_TABLE[_current_scope][lexeme]["const"] = 1
             if p[2].type.endswith("*"):
-                SYMBOL_TABLE[_current_scope][lexeme]["size"] = 8
+                _global_sp += 4
+                SYMBOL_TABLE[_current_scope][lexeme]["size"] = 4
                 SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
-                _current_size[_current_scope] += 8
-                _global_sp += 8
+                _current_size[_current_scope] += 4
             else:
+                _global_sp += _size[p[2].type]
                 SYMBOL_TABLE[_current_scope][lexeme]["size"] = _size[p[2].type]
                 SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
                 _current_size[_current_scope] += _size[p[2].type]
-                _global_sp += _size[p[2].type]
 
             p[0].code = p[4].code
             if p[4].type.endswith("*") or p[4].type in [
@@ -886,22 +1050,28 @@ def p_ConstSpec(p):
 
                 temp = _current_scope
                 p[0].place = get_id_token()
-                p[0].place += "_" + str(SYMBOL_TABLE[temp][lexeme]["size"])
+                temp_size = SYMBOL_TABLE[temp][lexeme]["size"]
+                if temp_size >= 10:
+                    temp_size = 8
+                p[0].place += "_" + str(temp_size)
                 p[0].code.append(find_addr_of_variable(lexeme, p[0].place))
                 p[0].code.append(
                     [
                         get_store_instruction(p[4].type),
                         p[4].place,
-                        "(" + p[0].place[1:] + ")",
+                        "(" + p[0].place[1:-2] + ")",
                     ]
                 )
 
             elif p[4].type in ["FLOAT32", "FLOAT64"]:
                 temp = _current_scope
                 p[0].place = get_id_token()
-                p[0].place += "_" + str(SYMBOL_TABLE[temp][lexeme]["size"])
+                temp_size = SYMBOL_TABLE[temp][lexeme]["size"]
+                if temp_size >= 10:
+                    temp_size = 8
+                p[0].place += "_" + str(temp_size)
                 p[0].code.append(find_addr_of_variable(lexeme, p[0].place))
-                p[0].code.append(["s.s", p[4].place, "(" + p[0].place[1:] + ")"])
+                p[0].code.append(["s.s", p[4].place, "(" + p[0].place[1:-2] + ")"])
             elif p[4].type in ["STRING"]:
                 str_len_reg = get_token()
                 ptr_reg = get_token()
@@ -913,9 +1083,12 @@ def p_ConstSpec(p):
 
                 p[0].place = get_id_token()
                 temp = _current_scope
-                p[0].place += "_" + str(SYMBOL_TABLE[temp][lexeme]["size"])
+                temp_size = SYMBOL_TABLE[temp][lexeme]["size"]
+                if temp_size >= 10:
+                    temp_size = 8
+                p[0].place += "_" + str(temp_size)
                 p[0].code.append(find_addr_of_variable(lexeme, p[0].place))
-                p[0].code.append(["sw", new_reg, "(" + p[0].place[1:] + ")"])
+                p[0].code.append(["sw", new_reg, "(" + p[0].place[1:-2] + ")"])
                 p[0].code.append(["addi", str_len_reg, str_len_reg, -4])
                 p[0].code.append(["sw", str_len_reg, "(" + new_reg + ")"])
                 p[0].code.append(["addi", new_reg, new_reg, 4])
@@ -939,31 +1112,40 @@ def p_ConstSpec(p):
             elif p[4].type == "intconst":
                 temp = _current_scope
                 p[0].place = get_id_token()
-                p[0].place += "_" + str(SYMBOL_TABLE[temp][lexeme]["size"])
+                temp_size = SYMBOL_TABLE[temp][lexeme]["size"]
+                if temp_size >= 10:
+                    temp_size = 8
+                p[0].place += "_" + str(temp_size)
                 p[0].code.append(find_addr_of_variable(lexeme, p[0].place))
                 p[0].code.append(
                     [
                         get_store_instruction(p[4].type),
                         p[4].place,
-                        "(" + p[0].place[1:] + ")",
+                        "(" + p[0].place[1:-2] + ")",
                     ]
                 )
             elif p[4].type == "floatconst":
                 temp = _current_scope
                 p[0].place = get_id_token()
-                p[0].place += "_" + str(SYMBOL_TABLE[temp][lexeme]["size"])
+                temp_size = SYMBOL_TABLE[temp][lexeme]["size"]
+                if temp_size >= 10:
+                    temp_size = 8
+                p[0].place += "_" + str(temp_size)
                 p[0].code.append(find_addr_of_variable(lexeme, p[0].place))
-                p[0].code.append(["s.s", p[4].place, "(" + p[0].place[1:] + ")"])
+                p[0].code.append(["s.s", p[4].place, "(" + p[0].place[1:-2] + ")"])
             elif p[4].type == "boolconst":
                 temp = _current_scope
                 p[0].place = get_id_token()
-                p[0].place += "_" + str(SYMBOL_TABLE[temp][lexeme]["size"])
+                temp_size = SYMBOL_TABLE[temp][lexeme]["size"]
+                if temp_size >= 10:
+                    temp_size = 8
+                p[0].place += "_" + str(temp_size)
                 p[0].code.append(find_addr_of_variable(lexeme, p[0].place))
                 p[0].code.append(
                     [
                         get_store_instruction(p[4].type),
                         p[4].place,
-                        "(" + p[0].place[1:] + ")",
+                        "(" + p[0].place[1:-2] + ")",
                     ]
                 )
             elif p[4].type == "stringconst":
@@ -972,16 +1154,19 @@ def p_ConstSpec(p):
                 p[0].code.append(["heap_mem_immediate", new_reg, str_len])
                 temp = _current_scope
                 p[0].place = get_id_token()
-                p[0].place += "_" + str(SYMBOL_TABLE[temp][lexeme]["size"])
+                temp_size = SYMBOL_TABLE[temp][lexeme]["size"]
+                if temp_size >= 10:
+                    temp_size = 8
+                p[0].place += "_" + str(temp_size)
                 p[0].code.append(find_addr_of_variable(lexeme, p[0].place))
-                p[0].code.append(["sw", new_reg, "(" + p[0].place[1:] + ")"])
+                p[0].code.append(["sw", new_reg, "(" + p[0].place[1:-2] + ")"])
 
                 anot_temp = get_token()
                 p[0].code.append(["li", anot_temp, str_len - 4])
                 p[0].code.append(["sw", anot_temp, "(" + new_reg + ")"])
                 p[0].code.append(["addi", new_reg, new_reg, 4])
                 temp_reg = get_token()
-                for i in range(str_len - 8):
+                for i in range(str_len - 4):
                     p[0].code.append(["li", temp_reg, p[4].val[i]])
                     p[0].code.append(["sb", temp_reg, "(" + new_reg + ")"])
                     p[0].code.append(["addi", new_reg, new_reg, 1])
@@ -1003,15 +1188,15 @@ def p_ConstSpec(p):
             if typ == "struct":
                 typ = typ + " " + temp[i + 1]
             if typ.endswith("*"):
-                SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * 8
+                _global_sp += Quant * 4
+                SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * 4
                 SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
-                _current_size[_current_scope] += Quant * 8
-                _global_sp += Quant * 8
+                _current_size[_current_scope] += Quant * 4
             else:
+                _global_sp += Quant * _size[typ]
                 SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * _size[typ]
                 SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
                 _current_size[_current_scope] += Quant * _size[typ]
-                _global_sp += Quant * _size[typ]
 
             SYMBOL_TABLE[_current_scope][lexeme]["array"] = dim
             SYMBOL_TABLE[_current_scope][lexeme]["const"] = 1
@@ -1019,7 +1204,10 @@ def p_ConstSpec(p):
             if len(array_init_list) != 0:
                 temp = _current_scope
                 p[0].place = get_id_token()
-                p[0].place += "_" + str(SYMBOL_TABLE[temp][lexeme]["size"])
+                temp_size = SYMBOL_TABLE[temp][lexeme]["size"]
+                if temp_size >= 10:
+                    temp_size = 8
+                p[0].place += "_" + str(temp_size)
                 p[0].code.append(find_addr_of_variable(lexeme, p[0].place))
                 if typ != "STRING":
                     for i in range(len(array_init_list)):
@@ -1027,7 +1215,7 @@ def p_ConstSpec(p):
                             anot_temp = get_f_token()
                             p[0].code.append(["li.s", anot_temp, array_init_list[i]])
                             p[0].code.append(
-                                ["s.s", anot_temp, "(" + p[0].place[1:] + ")"]
+                                ["s.s", anot_temp, "(" + p[0].place[1:-2] + ")"]
                             )
                         else:
                             anot_temp = get_token()
@@ -1036,11 +1224,11 @@ def p_ConstSpec(p):
                                 [
                                     get_store_instruction(typ),
                                     anot_temp,
-                                    "(" + p[0].place[1:] + ")",
+                                    "(" + p[0].place[1:-2] + ")",
                                 ]
                             )
                         p[0].code.append(
-                            ["addi", p[0].place[1:], p[0].place[1:], _size[typ]]
+                            ["addi", p[0].place[1:-2], p[0].place[1:-2], _size[typ]]
                         )
                         array_init_list = []
                 else:
@@ -1089,20 +1277,24 @@ def p_ConstSpec(p):
         elif p[3].type == "boolconst":
             p[3].type = "BOOL"
 
+        temp_pad = pad(_global_sp, p[3].type)
+        _global_sp += temp_pad
+        _current_size[_current_scope] += temp_pad
+
         if not p[3].type.startswith("ARRAY"):
             SYMBOL_TABLE[_current_scope][lexeme] = {}
             SYMBOL_TABLE[_current_scope][lexeme]["type"] = p[3].type
             SYMBOL_TABLE[_current_scope][lexeme]["const"] = 1
             if p[3].type.endswith("*"):
-                SYMBOL_TABLE[_current_scope][lexeme]["size"] = 8
+                _global_sp += 4
+                SYMBOL_TABLE[_current_scope][lexeme]["size"] = 4
                 SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
-                _current_size[_current_scope] += 8
-                _global_sp += 8
+                _current_size[_current_scope] += 4
             else:
+                _global_sp += _size[p[3].type]
                 SYMBOL_TABLE[_current_scope][lexeme]["size"] = _size[p[3].type]
                 SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
                 _current_size[_current_scope] += _size[p[3].type]
-                _global_sp += _size[p[3].type]
         else:
             SYMBOL_TABLE[_current_scope][lexeme] = {}
             SYMBOL_TABLE[_current_scope][lexeme]["type"] = p[3].type
@@ -1119,43 +1311,33 @@ def p_ConstSpec(p):
             if typ == "struct":
                 typ = typ + " " + temp[i + 1]
             if typ.endswith("*"):
-                SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * 8
+                _global_sp += Quant * 4
+                SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * 4
                 SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
-                _current_size[_current_scope] += Quant * 8
-                _global_sp += Quant * 8
+                _current_size[_current_scope] += Quant * 4
             else:
+                _global_sp += Quant * _size[p[3].type]
                 SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * _size[typ]
                 SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
                 _current_size[_current_scope] += Quant * _size[p[3].type]
-                _global_sp += Quant * _size[p[3].type]
 
             SYMBOL_TABLE[_current_scope][lexeme]["array"] = dim
             SYMBOL_TABLE[_current_scope][lexeme]["const"] = 1
 
-    # else:
-    #     if not p[2].type.startswith("ARRAY"):
-    #         SYMBOL_TABLE[_current_scope][lexeme] = {}
-    #         SYMBOL_TABLE[_current_scope][lexeme]["type"] = p[2].type
-    #         SYMBOL_TABLE[_current_scope][lexeme]["const"] = 1
-    #         SYMBOL_TABLE[_current_scope][lexeme]["size"] =_size[p[2].type]
-    #         if(p[2].type.endswith("*")):
-    #             SYMBOL_TABLE[_current_scope][lexeme]["size"] = 8
-    #     else:
-    #         # Pass complete array string
-    #         SYMBOL_TABLE[_current_scope][lexeme] = {}
-    #         SYMBOL_TABLE[_current_scope][lexeme]["type"] = p[2].type
-    #         i = 0
-    #         temp = p[3].type.split()
-    #         dim = []
-    #         while temp[i] == "ARRAY":
-    #             i = i + 1
-    #             dim.append(int(temp[i]))
-    #             i = i + 1
-    #         SYMBOL_TABLE[_current_scope][lexeme]["array"] = dim
-    #         SYMBOL_TABLE[_current_scope][lexeme]["const"] = 1
+    global _global_code_list
+    if _current_scope == 0:
+        _global_code_list += p[0].code
+        p[0].code = []
+    else:
+        diff = prev_global_sp - _global_sp
+        p[0].code.append(["addi", "$sp", "$sp", diff])
 
-    p[0] = Node(name="ConstSpec", val="", type="", line_num=p.lineno(1), children=[])
-    p[0].ast = add_edges(p)
+    global _global_variables
+
+    if _current_scope == 0:
+        _global_variables[get_global_label(lexeme)] = SYMBOL_TABLE[_current_scope][
+            lexeme
+        ]["size"]
 
 
 ## 2. Typedecl
@@ -1210,7 +1392,8 @@ def p_TypeDef(p):
         curr = []
         curr.append(temp[i])
         names.append(temp[i])
-        _offset[sym][temp[i]] = CurrSize
+        # _offset[sym][temp[i]] = CurrSize
+        CurrName = temp[i]
         i = i + 1
         typ = ""
         Quant = 1
@@ -1227,12 +1410,20 @@ def p_TypeDef(p):
             i = i + 1
             isStruct = "struct "
         if temp[i].endswith("*"):
-            CurrSize += Quant * 8
+            CurrSize += Quant * 4
         else:
             CurrSize += Quant * _size[isStruct + temp[i]]
         typ = typ + " " + temp[i]
+        typ = typ.strip()
+        CurrSize += pad(CurrSize, typ)
+        print("Hello", CurrSize, typ)
+        _offset[sym][CurrName] = CurrSize
+        if temp[i].endswith("*"):
+            CurrSize += Quant * 4
+        else:
+            CurrSize += Quant * _size[isStruct + temp[i]]
         i = i + 1
-        curr.append(typ.strip())
+        curr.append(typ)
         fields.append(curr)
     _size[sym] = CurrSize
     SYMBOL_TABLE[_current_scope][sym] = {}
@@ -1258,6 +1449,8 @@ def p_VarSpec(p):
     | IDENTIFIER Type"""
     global _global_sp
     global _current_size
+
+    prev_global_sp = _global_sp
 
     lexeme = ""
     if type(p[1]) is tuple:
@@ -1349,19 +1542,23 @@ def p_VarSpec(p):
                     + "Expression and specified type do not match"
                 )
 
+        temp_pad = pad(_global_sp, p[2].type)
+        _global_sp += temp_pad
+        _current_size[_current_scope] += temp_pad
+
         if not p[2].type.startswith("ARRAY"):
             SYMBOL_TABLE[_current_scope][lexeme] = {}
             SYMBOL_TABLE[_current_scope][lexeme]["type"] = p[2].type
             if p[2].type.endswith("*"):
-                SYMBOL_TABLE[_current_scope][lexeme]["size"] = 8
+                _global_sp += 4
+                SYMBOL_TABLE[_current_scope][lexeme]["size"] = 4
                 SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
-                _current_size[_current_scope] += 8
-                _global_sp += 8
+                _current_size[_current_scope] += 4
             else:
+                _global_sp += _size[p[2].type]
                 SYMBOL_TABLE[_current_scope][lexeme]["size"] = _size[p[2].type]
                 SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
                 _current_size[_current_scope] += _size[p[2].type]
-                _global_sp += _size[p[2].type]
 
             p[0].code = p[4].code
             if p[4].type.endswith("*") or p[4].type in [
@@ -1380,22 +1577,28 @@ def p_VarSpec(p):
 
                 temp = _current_scope
                 p[0].place = get_id_token()
-                p[0].place += "_" + str(SYMBOL_TABLE[temp][lexeme]["size"])
+                temp_size = SYMBOL_TABLE[temp][lexeme]["size"]
+                if temp_size >= 10:
+                    temp_size = 8
+                p[0].place += "_" + str(temp_size)
                 p[0].code.append(find_addr_of_variable(lexeme, p[0].place))
                 p[0].code.append(
                     [
                         get_store_instruction(p[4].type),
                         p[4].place,
-                        "(" + p[0].place[1:] + ")",
+                        "(" + p[0].place[1:-2] + ")",
                     ]
                 )
 
             elif p[4].type in ["FLOAT32", "FLOAT64"]:
                 temp = _current_scope
                 p[0].place = get_id_token()
-                p[0].place += "_" + str(SYMBOL_TABLE[temp][lexeme]["size"])
+                temp_size = SYMBOL_TABLE[temp][lexeme]["size"]
+                if temp_size >= 10:
+                    temp_size = 8
+                p[0].place += "_" + str(temp_size)
                 p[0].code.append(find_addr_of_variable(lexeme, p[0].place))
-                p[0].code.append(["s.s", p[4].place, "(" + p[0].place[1:] + ")"])
+                p[0].code.append(["s.s", p[4].place, "(" + p[0].place[1:-2] + ")"])
             elif p[4].type in ["STRING"]:
                 str_len_reg = get_token()
                 ptr_reg = get_token()
@@ -1407,9 +1610,12 @@ def p_VarSpec(p):
 
                 p[0].place = get_id_token()
                 temp = _current_scope
-                p[0].place += "_" + str(SYMBOL_TABLE[temp][lexeme]["size"])
+                temp_size = SYMBOL_TABLE[temp][lexeme]["size"]
+                if temp_size >= 10:
+                    temp_size = 8
+                p[0].place += "_" + str(temp_size)
                 p[0].code.append(find_addr_of_variable(lexeme, p[0].place))
-                p[0].code.append(["sw", new_reg, "(" + p[0].place[1:] + ")"])
+                p[0].code.append(["sw", new_reg, "(" + p[0].place[1:-2] + ")"])
                 p[0].code.append(["addi", str_len_reg, str_len_reg, -4])
                 p[0].code.append(["sw", str_len_reg, "(" + new_reg + ")"])
                 p[0].code.append(["addi", new_reg, new_reg, 4])
@@ -1433,31 +1639,40 @@ def p_VarSpec(p):
             elif p[4].type == "intconst":
                 temp = _current_scope
                 p[0].place = get_id_token()
-                p[0].place += "_" + str(SYMBOL_TABLE[temp][lexeme]["size"])
+                temp_size = SYMBOL_TABLE[temp][lexeme]["size"]
+                if temp_size >= 10:
+                    temp_size = 8
+                p[0].place += "_" + str(temp_size)
                 p[0].code.append(find_addr_of_variable(lexeme, p[0].place))
                 p[0].code.append(
                     [
                         get_store_instruction(p[4].type),
                         p[4].place,
-                        "(" + p[0].place[1:] + ")",
+                        "(" + p[0].place[1:-2] + ")",
                     ]
                 )
             elif p[4].type == "floatconst":
                 temp = _current_scope
                 p[0].place = get_id_token()
-                p[0].place += "_" + str(SYMBOL_TABLE[temp][lexeme]["size"])
+                temp_size = SYMBOL_TABLE[temp][lexeme]["size"]
+                if temp_size >= 10:
+                    temp_size = 8
+                p[0].place += "_" + str(temp_size)
                 p[0].code.append(find_addr_of_variable(lexeme, p[0].place))
-                p[0].code.append(["s.s", p[4].place, "(" + p[0].place[1:] + ")"])
+                p[0].code.append(["s.s", p[4].place, "(" + p[0].place[1:-2] + ")"])
             elif p[4].type == "boolconst":
                 temp = _current_scope
                 p[0].place = get_id_token()
-                p[0].place += "_" + str(SYMBOL_TABLE[temp][lexeme]["size"])
+                temp_size = SYMBOL_TABLE[temp][lexeme]["size"]
+                if temp_size >= 10:
+                    temp_size = 8
+                p[0].place += "_" + str(temp_size)
                 p[0].code.append(find_addr_of_variable(lexeme, p[0].place))
                 p[0].code.append(
                     [
                         get_store_instruction(p[4].type),
                         p[4].place,
-                        "(" + p[0].place[1:] + ")",
+                        "(" + p[0].place[1:-2] + ")",
                     ]
                 )
             elif p[4].type == "stringconst":
@@ -1466,16 +1681,19 @@ def p_VarSpec(p):
                 p[0].code.append(["heap_mem_immediate", new_reg, str_len])
                 temp = _current_scope
                 p[0].place = get_id_token()
-                p[0].place += "_" + str(SYMBOL_TABLE[temp][lexeme]["size"])
+                temp_size = SYMBOL_TABLE[temp][lexeme]["size"]
+                if temp_size >= 10:
+                    temp_size = 8
+                p[0].place += "_" + str(temp_size)
                 p[0].code.append(find_addr_of_variable(lexeme, p[0].place))
-                p[0].code.append(["sw", new_reg, "(" + p[0].place[1:] + ")"])
+                p[0].code.append(["sw", new_reg, "(" + p[0].place[1:-2] + ")"])
 
                 anot_temp = get_token()
                 p[0].code.append(["li", anot_temp, str_len - 4])
                 p[0].code.append(["sw", anot_temp, "(" + new_reg + ")"])
                 p[0].code.append(["addi", new_reg, new_reg, 4])
                 temp_reg = get_token()
-                for i in range(str_len - 8):
+                for i in range(str_len - 4):
                     p[0].code.append(["li", temp_reg, p[4].val[i]])
                     p[0].code.append(["sb", temp_reg, "(" + new_reg + ")"])
                     p[0].code.append(["addi", new_reg, new_reg, 1])
@@ -1497,22 +1715,25 @@ def p_VarSpec(p):
             if typ == "struct":
                 typ = typ + " " + temp[i + 1]
             if typ.endswith("*"):
-                SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * 8
+                _global_sp += 4
+                SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * 4
                 SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
-                _current_size[_current_scope] += 8
-                _global_sp += 8
+                _current_size[_current_scope] += 4
             else:
+                _global_sp += Quant * _size[typ]
                 SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * _size[typ]
                 SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
                 _current_size[_current_scope] += Quant * _size[typ]
-                _global_sp += Quant * _size[typ]
 
             SYMBOL_TABLE[_current_scope][lexeme]["array"] = dim
 
             if len(array_init_list) != 0:
                 temp = _current_scope
                 p[0].place = get_id_token()
-                p[0].place += "_" + str(SYMBOL_TABLE[temp][lexeme]["size"])
+                temp_size = SYMBOL_TABLE[temp][lexeme]["size"]
+                if temp_size >= 10:
+                    temp_size = 8
+                p[0].place += "_" + str(temp_size)
                 p[0].code.append(find_addr_of_variable(lexeme, p[0].place))
                 if typ != "STRING":
                     for i in range(len(array_init_list)):
@@ -1520,7 +1741,7 @@ def p_VarSpec(p):
                             anot_temp = get_f_token()
                             p[0].code.append(["li.s", anot_temp, array_init_list[i]])
                             p[0].code.append(
-                                ["s.s", anot_temp, "(" + p[0].place[1:] + ")"]
+                                ["s.s", anot_temp, "(" + p[0].place[1:-2] + ")"]
                             )
                         else:
                             anot_temp = get_token()
@@ -1529,11 +1750,11 @@ def p_VarSpec(p):
                                 [
                                     get_store_instruction(typ),
                                     anot_temp,
-                                    "(" + p[0].place[1:] + ")",
+                                    "(" + p[0].place[1:-2] + ")",
                                 ]
                             )
                         p[0].code.append(
-                            ["addi", p[0].place[1:], p[0].place[1:], _size[typ]]
+                            ["addi", p[0].place[1:-2], p[0].place[1:-2], _size[typ]]
                         )
                         array_init_list = []
                 else:
@@ -1582,19 +1803,23 @@ def p_VarSpec(p):
         elif p[3].type == "boolconst":
             p[3].type = "BOOL"
 
+        temp_pad = pad(_global_sp, p[3].type)
+        _global_sp += temp_pad
+        _current_size[_current_scope] += temp_pad
+
         if not p[3].type.startswith("ARRAY"):
             SYMBOL_TABLE[_current_scope][lexeme] = {}
             SYMBOL_TABLE[_current_scope][lexeme]["type"] = p[3].type
             if p[3].type.endswith("*"):
-                SYMBOL_TABLE[_current_scope][lexeme]["size"] = 8
+                _global_sp += 4
+                SYMBOL_TABLE[_current_scope][lexeme]["size"] = 4
                 SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
-                _current_size[_current_scope] += 8
-                _global_sp += 8
+                _current_size[_current_scope] += 4
             else:
+                _global_sp += _size[p[3].type]
                 SYMBOL_TABLE[_current_scope][lexeme]["size"] = _size[p[3].type]
                 SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
                 _current_size[_current_scope] += _size[p[3].type]
-                _global_sp += _size[p[3].type]
         else:
             i = 0
             SYMBOL_TABLE[_current_scope][lexeme] = {}
@@ -1611,32 +1836,37 @@ def p_VarSpec(p):
             if typ == "struct":
                 typ = typ + " " + temp[i + 1]
             if typ.endswith("*"):
-                SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * 8
+                _global_sp += Quant * 4
+                SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * 4
                 SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
-                _current_size[_current_scope] += Quant * 8
-                _global_sp += Quant * 8
+                _current_size[_current_scope] += Quant * 4
             else:
+                _global_sp += Quant * _size[typ]
                 SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * _size[typ]
                 SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
                 _current_size[_current_scope] += Quant * _size[typ]
-                _global_sp += Quant * _size[typ]
 
             SYMBOL_TABLE[_current_scope][lexeme]["array"] = dim
 
     else:
+
+        temp_pad = pad(_global_sp, p[2].type)
+        _global_sp += temp_pad
+        _current_size[_current_scope] += temp_pad
+
         if not p[2].type.startswith("ARRAY"):
             SYMBOL_TABLE[_current_scope][lexeme] = {}
             SYMBOL_TABLE[_current_scope][lexeme]["type"] = p[2].type
             if p[2].type.endswith("*"):
-                SYMBOL_TABLE[_current_scope][lexeme]["size"] = 8
+                _global_sp += 4
+                SYMBOL_TABLE[_current_scope][lexeme]["size"] = 4
                 SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
-                _current_size[_current_scope] += 8
-                _global_sp += 8
+                _current_size[_current_scope] += 4
             else:
+                _global_sp += _size[p[2].type]
                 SYMBOL_TABLE[_current_scope][lexeme]["size"] = _size[p[2].type]
                 SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
                 _current_size[_current_scope] += _size[p[2].type]
-                _global_sp += _size[p[2].type]
         else:
             # Pass complete array string
             SYMBOL_TABLE[_current_scope][lexeme] = {}
@@ -1654,17 +1884,33 @@ def p_VarSpec(p):
             if typ == "struct":
                 typ = typ + " " + temp[i + 1]
             if typ.endswith("*"):
-                SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * 8
+                _global_sp += Quant * 4
+                SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * 4
                 SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
-                _current_size[_current_scope] += Quant * 8
-                _global_sp += Quant * 8
+                _current_size[_current_scope] += Quant * 4
             else:
+                _global_sp += Quant * _size[typ]
                 SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * _size[typ]
                 SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
                 _current_size[_current_scope] += Quant * _size[typ]
-                _global_sp += Quant * _size[typ]
 
             SYMBOL_TABLE[_current_scope][lexeme]["array"] = dim
+
+    global _global_code_list
+    if _current_scope == 0:
+        _global_code_list += p[0].code
+        p[0].code = []
+
+    else:
+        diff = prev_global_sp - _global_sp
+        p[0].code.append(["addi", "$sp", "$sp", diff])
+
+    global _global_variables
+
+    if _current_scope == 0:
+        _global_variables[get_global_label(lexeme)] = SYMBOL_TABLE[_current_scope][
+            lexeme
+        ]["size"]
 
 
 ## SIMPLE STATEMENT
@@ -1708,7 +1954,7 @@ def p_IncDecStmt(p):  # to check on which all things can this be applied
     found_scope = find_scope(
         p[1].val, p[1].line_num
     )  # this restricts the type of expressions on which it can be applied
-    if found_scope == -1:
+    if found_scope == -1 or p[1].isconst:
         print_compilation_error(
             f"Compilation Error at line {p[1].line_num}: Operation increment/decrement invalid on {p[1].val}"
         )
@@ -1728,9 +1974,18 @@ def p_IncDecStmt(p):  # to check on which all things can this be applied
             if isint(p[1].type) and p[1].type != "intconst":
                 p[0].code = p[1].code
                 if lexeme == "++":
-                    p[0].code.append(["int immediate +", p[0].place, p[1].place, "1"])
+                    p[0].code.append(["addi", p[0].place, p[1].place, "1"])
                 else:
-                    p[0].code.append(["int immediate +", p[0].place, p[1].place, "-1"])
+                    p[0].code.append(["addi", p[0].place, p[1].place, "-1"])
+
+                p[0].code.append(
+                    [
+                        get_store_instruction(p[1].type),
+                        p[0].place,
+                        "(" + p[1].place[1:-2] + ")",
+                    ]
+                )
+
             else:
                 print_compilation_error(
                     f"Compilation Error at line {p[1].line_num}: Operation increment/decrement invalid on {p[1].val}"
@@ -1757,7 +2012,10 @@ def p_Assignment_2(p):
             f"Compilation Error at line {p[1].line_num}: Cannot assign expression value to a R-value"
         )
 
-    if p[1].type in ["intconst", "floatconst", "boolconst", "stringconst"]:
+    if (
+        p[1].type in ["intconst", "floatconst", "boolconst", "stringconst"]
+        or p[1].isconst
+    ):
         print_compilation_error(
             f"Compilation Error at line {p[1].line_num}: Left hand side cannot be constant"
         )
@@ -1803,7 +2061,7 @@ def p_Assignment_2(p):
                             [
                                 get_store_instruction(p[1].type),
                                 p[0].place,
-                                "(" + p[1].place[1:] + ")",
+                                "(" + p[1].place[1:-2] + ")",
                             ]
                         )
                         p[0].ast = add_edges(p)
@@ -1822,7 +2080,7 @@ def p_Assignment_2(p):
                             [
                                 get_store_instruction(p[1].type),
                                 p[0].place,
-                                "(" + p[1].place[1:] + ")",
+                                "(" + p[1].place[1:-2] + ")",
                             ]
                         )
                         p[0].ast = add_edges(p)
@@ -1896,7 +2154,7 @@ def p_Assignment_2(p):
                                 [
                                     get_store_instruction(p[1].type),
                                     p[0].place,
-                                    "(" + p[1].place[1:] + ")",
+                                    "(" + p[1].place[1:-2] + ")",
                                 ]
                             )
 
@@ -1934,7 +2192,7 @@ def p_Assignment_2(p):
                                 )
                             p[0].ast = add_edges(p)
                             p[0].code.append(
-                                ["s.s", p[0].place, "(" + p[1].place[1:] + ")"]
+                                ["s.s", p[0].place, "(" + p[1].place[1:-2] + ")"]
                             )
 
                         elif p[1].type in ["FLOAT32", "FLOAT64"]:
@@ -1970,7 +2228,7 @@ def p_Assignment_2(p):
                                 )
                             p[0].ast = add_edges(p)
                             p[0].code.append(
-                                ["s.s", p[0].place, "(" + p[1].place[1:] + ")"]
+                                ["s.s", p[0].place, "(" + p[1].place[1:-2] + ")"]
                             )
                         else:
                             p[0].code = p[1].code + p[3].code
@@ -2007,7 +2265,7 @@ def p_Assignment_2(p):
                                 [
                                     get_store_instruction(p[1].type),
                                     p[0].place,
-                                    "(" + p[1].place[1:] + ")",
+                                    "(" + p[1].place[1:-2] + ")",
                                 ]
                             )
             else:
@@ -2058,7 +2316,7 @@ def p_Assignment_2(p):
                                 [
                                     get_store_instruction(p[1].type),
                                     p[0].place,
-                                    "(" + p[1].place[1:] + ")",
+                                    "(" + p[1].place[1:-2] + ")",
                                 ]
                             )
 
@@ -2071,7 +2329,7 @@ def p_Assignment_2(p):
                             )
                             p[0].ast = add_edges(p)
                             p[0].code.append(
-                                ["s.s", p[0].place, "(" + p[1].place[1:] + ")"]
+                                ["s.s", p[0].place, "(" + p[1].place[1:-2] + ")"]
                             )
 
                         elif p[1].type in ["FLOAT32", "FLOAT64"]:
@@ -2082,7 +2340,7 @@ def p_Assignment_2(p):
                             )
                             p[0].ast = add_edges(p)
                             p[0].code.append(
-                                ["s.s", p[0].place, "(" + p[1].place[1:] + ")"]
+                                ["s.s", p[0].place, "(" + p[1].place[1:-2] + ")"]
                             )
                         else:
                             p[0].code = p[1].code + p[3].code
@@ -2094,7 +2352,7 @@ def p_Assignment_2(p):
                                 [
                                     get_store_instruction(p[1].type),
                                     p[0].place,
-                                    "(" + p[1].place[1:] + ")",
+                                    "(" + p[1].place[1:-2] + ")",
                                 ]
                             )
             else:
@@ -2141,7 +2399,7 @@ def p_Assignment_2(p):
                                 [
                                     get_store_instruction(p[1].type),
                                     p[0].place,
-                                    "(" + p[1].place[1:] + ")",
+                                    "(" + p[1].place[1:-2] + ")",
                                 ]
                             )
                         else:
@@ -2166,7 +2424,7 @@ def p_Assignment_2(p):
                                     [
                                         get_store_instruction(p[1].type),
                                         p[0].place,
-                                        "(" + p[1].place[1:] + ")",
+                                        "(" + p[1].place[1:-2] + ")",
                                     ]
                                 )
                 else:
@@ -2216,7 +2474,7 @@ def p_Assignment_2(p):
                             [
                                 get_store_instruction(p[1].type),
                                 p[0].place,
-                                "(" + p[1].place[1:] + ")",
+                                "(" + p[1].place[1:-2] + ")",
                             ]
                         )
 
@@ -2229,7 +2487,7 @@ def p_Assignment_2(p):
                             [
                                 get_store_instruction(p[1].type),
                                 p[0].place,
-                                "(" + p[1].place[1:] + ")",
+                                "(" + p[1].place[1:-2] + ")",
                             ]
                         )
 
@@ -2254,7 +2512,7 @@ def p_Assignment_2(p):
                         [
                             get_store_instruction(p[1].type),
                             p[0].place,
-                            "(" + p[1].place[1:] + ")",
+                            "(" + p[1].place[1:-2] + ")",
                         ]
                     )
 
@@ -2290,14 +2548,14 @@ def p_Assignment_2(p):
                             [
                                 get_store_instruction(p[1].type),
                                 p[3].place,
-                                "(" + p[1].place[1:] + ")",
+                                "(" + p[1].place[1:-2] + ")",
                             ]
                         )
                     elif p[1].type in ["FLOAT32", "FLOAT64"]:
                         p[0].place = get_token()
                         p[0].code = p[1].code + p[3].code
                         p[0].code.append(
-                            ["s.s", p[3].place, "(" + p[1].place[1:] + ")"]
+                            ["s.s", p[3].place, "(" + p[1].place[1:-2] + ")"]
                         )
                         p[0].ast = add_edges(p)
                     elif p[1].type.endswith("*"):
@@ -2307,7 +2565,7 @@ def p_Assignment_2(p):
                             [
                                 get_store_instruction(p[1].type),
                                 p[3].place,
-                                "(" + p[1].place[1:] + ")",
+                                "(" + p[1].place[1:-2] + ")",
                             ]
                         )
                         p[0].ast = add_edges(p)
@@ -2323,7 +2581,7 @@ def p_Assignment_2(p):
                         new_reg = get_token()
                         p[0].code.append(["heap_mem", new_reg, str_len_reg])
 
-                        p[0].code.append(["sw", new_reg, "(" + p[1].place[1:] + ")"])
+                        p[0].code.append(["sw", new_reg, "(" + p[1].place[1:-2] + ")"])
                         p[0].code.append(["addi", str_len_reg, str_len_reg, -4])
                         p[0].code.append(["sw", str_len_reg, "(" + new_reg + ")"])
                         p[0].code.append(["addi", new_reg, new_reg, 4])
@@ -2364,14 +2622,14 @@ def p_Assignment_2(p):
                 new_reg = get_token()
                 p[0].code.append(["heap_mem_immediate", new_reg, str_len])
 
-                p[0].code.append(["sw", new_reg, "(" + p[1].place[1:] + ")"])
+                p[0].code.append(["sw", new_reg, "(" + p[1].place[1:-2] + ")"])
 
                 anot_temp = get_token()
                 p[0].code.append(["li", anot_temp, str_len - 4])
                 p[0].code.append(["sw", anot_temp, "(" + new_reg + ")"])
                 p[0].code.append(["addi", new_reg, new_reg, 4])
                 temp_reg = get_token()
-                for i in range(str_len - 8):
+                for i in range(str_len - 4):
                     p[0].code.append(["li", temp_reg, p[3].val[i]])
                     p[0].code.append(["sb", temp_reg, "(" + new_reg + ")"])
                     p[0].code.append(["addi", new_reg, new_reg, 1])
@@ -2393,7 +2651,7 @@ def p_Assignment_2(p):
                     [
                         get_store_instruction(p[1].type),
                         p[3].place,
-                        "(" + p[1].place[1:] + ")",
+                        "(" + p[1].place[1:-2] + ")",
                     ]
                 )
             elif p[1].type in ["FLOAT32", "FLOAT64"] and p[3].type in [
@@ -2408,7 +2666,7 @@ def p_Assignment_2(p):
                 )
                 p[0].place = get_token()
                 p[0].code = p[1].code + p[3].code
-                p[0].code.append(["s.s", p[3].place, "(" + p[1].place[1:] + ")"])
+                p[0].code.append(["s.s", p[3].place, "(" + p[1].place[1:-2] + ")"])
                 p[0].ast = add_edges(p)
             elif p[1].type in ["INT", "INT8", "INT16", "INT32", "INT64",] and p[
                 3
@@ -2427,7 +2685,7 @@ def p_Assignment_2(p):
                     [
                         get_store_instruction(p[1].type),
                         p[3].place,
-                        "(" + p[1].place[1:] + ")",
+                        "(" + p[1].place[1:-2] + ")",
                     ]
                 )
             else:
@@ -2534,18 +2792,20 @@ def p_PrimaryExpr_2(p):
             type = new_type[length - 1]
     type_size = 0
     if type.endswith("*"):
-        type_size = 8
+        type_size = 4
     else:
         type_size = _size[type]
 
     temp_label = get_token()
 
     add *= type_size
+    if add >= 10:
+        add = 8
     p[0].place = "*" + get_token() + "_" + str(add)
     temp_reg = get_token()
     p[0].code.append(["li", temp_reg, add])
     p[0].code.append(["mul", temp_label, p[2].place, temp_reg])
-    p[0].code.append(["add", p[0].place[1:], p[1].place[1:], temp_label])
+    p[0].code.append(["add", p[0].place[1:-2], p[1].place[1:-2], temp_label])
 
     if p[0].level == -1:
         print_compilation_error(
@@ -2668,10 +2928,13 @@ def p_PrimaryExpr_5(p):  # DONE
         p[0].ast = add_edges(p)
 
 
-## TODO
-def p_PrimaryExpr_6(p):  # to check this with antreev
+def p_PrimaryExpr_6(p):
     """PrimaryExpr :  PrimaryExpr LEFT_PARENTH RIGHT_PARENTH
     |  PrimaryExpr LEFT_PARENTH ExpressionList RIGHT_PARENTH"""
+    global _global_sp
+    padd_val = 0
+    total_val = 0
+
     if len(p) == 4:
         p[0] = Node(
             name="FunctionCall",
@@ -2680,6 +2943,7 @@ def p_PrimaryExpr_6(p):  # to check this with antreev
             type=p[1].type,
             children=[p[1]],
         )
+        p[0].code = []
         p[0].ast = add_edges(p, [2, 3])
         if (
             p[1].val not in SYMBOL_TABLE[0].keys()
@@ -2694,6 +2958,21 @@ def p_PrimaryExpr_6(p):  # to check this with antreev
                 f"Compilation Error at line {p[1].line_num}: Incorrect number of arguments for function call"
             )
 
+        ## retrieve in reverse order
+        padd_val = pad(_global_sp, "INT")
+        _global_sp += padd_val
+
+        # total_val +=padd_val
+
+        p[0].code += [["addi", "$sp", "$sp", -padd_val]]
+
+        for i in range(NUM_REGISTERS):
+            ## retrieve in reverse order
+            p[0].code += [["addi", "$sp", "$sp", -4]]
+            p[0].code += [["sw", f"$t{i}", "($sp)"]]
+
+        _global_sp += NUM_REGISTERS * 4
+
     if len(p) == 5:  # check with antreev
         p[0] = Node(
             name="FunctionCall",
@@ -2702,6 +2981,7 @@ def p_PrimaryExpr_6(p):  # to check this with antreev
             type=p[1].type,
             children=[],
         )
+        p[0].code = []
         p[0].ast = add_edges(p, [2, 4])
         if (
             p[1].val not in SYMBOL_TABLE[0].keys()
@@ -2710,6 +2990,104 @@ def p_PrimaryExpr_6(p):  # to check this with antreev
             print_compilation_error(
                 f"Compilation Error at line {p[1].line_num}: No function with name {p[1].val} declared"
             )
+
+        elif p[1].val in INBUILT_FUNCTIONS:
+
+            padd_val = pad(_global_sp, "INT")
+            _global_sp += padd_val
+
+            p[0].code += [["addi", "$sp", "$sp", -padd_val]]
+
+            for i in range(NUM_REGISTERS):
+                ## retrieve in reverse order
+                p[0].code += [["addi", "$sp", "$sp", -4]]
+                p[0].code += [["sw", f"$t{i}", "($sp)"]]
+
+            _global_sp += NUM_REGISTERS * 4
+
+            if p[1].val == "printf":
+                ## Number of arguments should be 1 in print
+                if 1 != len(p[3].children):
+                    print_compilation_error(
+                        f"Compilation Error at line {p[1].line_num}: Incorrect number of arguments for function call print"
+                    )
+
+                #####
+                # Register
+                arg_print = p[3].children[0]
+
+                if arg_print.type in ["FLOAT32", "FLOAT64", "floatconst"]:
+                    p[0].code += [["move", "$f12", arg_print.place]]
+                    p[0].code += [["li", "$v0", 2]]
+                elif arg_print.type in ["stringconst", "STRING"]:
+                    pass
+                elif (
+                    isint(arg_print.type)
+                    or arg_print.type in ["BOOL", "boolconst"]
+                    or arg_print.type.endswith("*")
+                ):
+                    p[0].code += [["move", "$a0", arg_print.place]]
+                    p[0].code += [["li", "$v0", 1]]
+
+                else:
+                    print_compilation_error(
+                        f"Compilation Error at line {p[1].line_num}: Invalid arg in print"
+                    )
+                #####
+                p[0].code += [["jal", SYMBOL_TABLE[0][p[1].val]["jumpLabel"]]]
+
+            elif p[1].val == "scanf":
+                ## Number of arguments should be 1 in print
+                if 1 != len(p[3].children):
+                    print_compilation_error(
+                        f"Compilation Error at line {p[1].line_num}: Incorrect number of arguments for function call scan"
+                    )
+                #####
+                # Register
+                arg_print = p[3].children[0]
+                if not arg_print.type.endswith("*"):
+                    print_compilation_error(
+                        f"Compilation Error at line {p[1].line_num}: Incorrect type of argument for function call scan"
+                    )
+                else:
+                    typ = arg_print.type[:-1]
+
+                    if typ in ["FLOAT32", "FLOAT64", "floatconst"]:
+
+                        p[0].code += [["li", "$v0", 6]]
+                        p[0].code += [["jal", SYMBOL_TABLE[0][p[1].val]["jumpLabel"]]]
+                        p[0].code += [["s.s", "$f0", "(" + arg_print.place + ")"]]
+
+                    elif typ in ["stringconst", "STRING"]:
+                        pass
+                    elif (
+                        isint(typ)
+                        or typ in ["BOOL", "boolconst"]
+                        or arg_print.type.endswith("*")
+                    ):
+                        p[0].code += [["li", "$v0", 5]]
+                        p[0].code += [["jal", SYMBOL_TABLE[0][p[1].val]["jumpLabel"]]]
+                        p[0].code += [
+                            [
+                                get_store_instruction(typ),
+                                "$v0",
+                                "(" + arg_print.place + ")",
+                            ]
+                        ]
+
+                    else:
+                        print_compilation_error(
+                            f"Compilation Error at line {p[1].line_num}: Invalid arg in print"
+                        )
+
+            for i in range(NUM_REGISTERS):
+                ## retrieve in reverse order
+                p[0].code += [["lw", f"$t{NUM_REGISTERS-1-i}", "($sp)"]]
+                p[0].code += [["addi", "$sp", "$sp", 4]]
+
+            _global_sp -= NUM_REGISTERS * 4  # TODO depends on the number of registers
+            p[0].code += [["addi", "$sp", "$sp", padd_val]]
+            _global_sp -= padd_val
 
         elif len(SYMBOL_TABLE[0][p[1].val]["argumentList"]) != len(p[3].children):
             print_compilation_error(
@@ -2727,6 +3105,21 @@ def p_PrimaryExpr_6(p):  # to check this with antreev
                 i += 1
 
             j = 0
+            itr = 0
+
+            padd_val = pad(_global_sp, "INT")
+            _global_sp += padd_val
+
+            p[0].code += [["addi", "$sp", "$sp", -padd_val]]
+
+            for i in range(NUM_REGISTERS):
+                ## retrieve in reverse order
+                p[0].code += [["addi", "$sp", "$sp", -4]]
+                p[0].code += [["sw", f"$t{i}", "($sp)"]]
+
+            _global_sp += NUM_REGISTERS * 4
+
+            init_global_sp = _global_sp
 
             for arguments in SYMBOL_TABLE[0][p[1].val]["argumentList"]:
                 val = 0
@@ -2735,7 +3128,7 @@ def p_PrimaryExpr_6(p):  # to check this with antreev
                     val = _size.get(arguments, 0)
 
                     if arguments.endswith("*"):
-                        val = 8
+                        val = 4
                     else:
                         val = _size.get(arguments, 0)
 
@@ -2753,18 +3146,49 @@ def p_PrimaryExpr_6(p):  # to check this with antreev
                         if typ == "struct":
                             typ = typ + " " + temp[i + 1]
                         if typ.endswith("*"):
-                            val = Quant * 8
+                            val = Quant * 4
                         else:
                             val = Quant * _size[typ]
-                    _global_sp += val
+
+                    temp_global_sp = 0
+                    temp_global_sp += pad(_global_sp, arguments)
+
+                    _global_sp += temp_global_sp + val
+
+                    p[0].code += [["addi", "$sp", "$sp", -temp_global_sp - val]]
+                    p[0].code += [
+                        [
+                            get_store_instruction(arguments),
+                            p[3].children[itr].place,
+                            "($sp)",
+                        ]
+                    ]
+
                     # TODO push to stack
-
                 j += 1
+                itr += 1
 
-    j = 0
-    p[0].code = []
+            final_pad = pad(_global_sp, "INT")
+            _global_sp += final_pad
+            p[0].code += [["addi", "$sp", "$sp", -final_pad]]
+            total_val = _global_sp - init_global_sp
 
     p[0].code += [["jal", SYMBOL_TABLE[0][p[1].val]["jumpLabel"]]]
+    p[0].code += [["addi", "$sp", "$sp", -1 * total_val]]
+    ## Just doing it for 2 regs now
+    ##remember the reverse
+
+    for i in range(NUM_REGISTERS):
+        ## retrieve in reverse order
+        p[0].code += [["lw", f"$t{NUM_REGISTERS-1-i}", "($sp)"]]
+        p[0].code += [["addi", "$sp", "$sp", 4]]
+
+    _global_sp -= NUM_REGISTERS * 4  # TODO depends on the number of registers
+
+    p[0].code += [["addi", "$sp", "$sp", padd_val]]
+    p[0].code += [["move", p[0].place, "$v0"]]
+
+    _global_sp -= padd_val
 
 
 def p_PrimaryExpr_7(p):
@@ -2802,7 +3226,11 @@ def p_PrimaryExpr_7(p):
     for curr_list in SYMBOL_TABLE[found_scope][struct_name]["field_list"]:
         if curr_list[0] == lexeme:
             off = _offset[struct_name][lexeme]
-            p[0].place += "_" + str(getsize(curr_list[1]))
+
+            temp_size = getsize(curr_list[1])
+            if temp_size >= 10:
+                temp_size = 8
+            p[0].place += "_" + str(temp_size)
             flag = 1
             if curr_list[1].startswith("ARRAY"):  # to handle slices as well
                 i = 0
@@ -2824,7 +3252,7 @@ def p_PrimaryExpr_7(p):
         )
 
     else:
-        p[0].code.append(["addi", p[0].place[1:], p[1].place[1:], off])
+        p[0].code.append(["addi", p[0].place[1:-2], p[1].place[1:-2], off])
 
 
 def p_PrimaryExpr_9(p):
@@ -2872,7 +3300,6 @@ def p_Conversion(p):
     p[0] = p[3]
     p[0].type = p[1].type
     p[0].place = get_token()
-    p[0].code.append([p[1].type + "to" + p[0].type, p[0].place, p[1].place])
     p[0].ast = add_edges(p)
 
     if not convertible(p[3].type, p[1].type):
@@ -2896,7 +3323,10 @@ def p_Operand_1(p):  # DONE
     if temp != -1:
         if not "func" in SYMBOL_TABLE[temp][lexeme]:
             p[0].place = get_id_token()
-            p[0].place += "_" + str(SYMBOL_TABLE[temp][lexeme]["size"])
+            temp_size = SYMBOL_TABLE[temp][lexeme]["size"]
+            if temp_size >= 10:
+                temp_size = 8
+            p[0].place += "_" + str(temp_size)
             p[0].code.append(find_addr_of_variable(lexeme, p[0].place))
 
         p[0].type = SYMBOL_TABLE[temp][lexeme]["type"]
@@ -2906,6 +3336,9 @@ def p_Operand_1(p):  # DONE
             p[0].level = len(SYMBOL_TABLE[temp][lexeme]["array"])
             p[0].dims = SYMBOL_TABLE[temp][lexeme]["array"]
             # print_compilation_error(SYMBOL_TABLE[temp][lexeme]["array"])
+
+        if "const" in SYMBOL_TABLE[temp][lexeme].keys():
+            p[0].isconst = True
 
         # if ID is func name
         if "func" in SYMBOL_TABLE[temp][lexeme]:
@@ -3197,17 +3630,17 @@ def p_Expression(p):
                     children=[],
                 )
                 p[0].ast = add_edges(p)
-                p[0].true = generate_label()
-                p[0].false = generate_label()
-                DSU_merge(p[1].true, p[3].true)
-                DSU_merge(p[0].true, p[1].true)
-                DSU_merge(p[0].false, p[3].false)
+                p[0].truelabel = generate_label()
+                p[0].falselabel = generate_label()
+                DSU_merge(p[1].truelabel, p[3].truelabel)
+                DSU_merge(p[0].truelabel, p[1].truelabel)
+                DSU_merge(p[0].falselabel, p[3].falselabel)
                 p[0].code = p[1].code + p[3].code
                 # p[0].code.append(p[1].code)
-                p[0].code.append(["bnez", p[1].place, p[1].true])
+                p[0].code.append(["bnez", p[1].place, p[1].truelabel])
                 # p[0].code.append(p[3].code)
-                p[0].code.append(["bnez", p[3].place, p[3].true])
-                p[0].code.append(["j", p[3].false])
+                p[0].code.append(["bnez", p[3].place, p[3].truelabel])
+                p[0].code.append(["j", p[3].falselabel])
 
         if lexeme == "&&":
             if not (
@@ -3227,17 +3660,17 @@ def p_Expression(p):
                     children=[],
                 )
                 p[0].ast = add_edges(p)
-                p[0].true = generate_label()
-                p[0].false = generate_label()
-                DSU_merge(p[1].false, p[3].false)
-                DSU_merge(p[0].false, p[1].false)
-                DSU_merge(p[0].true, p[3].true)
+                p[0].truelabel = generate_label()
+                p[0].falselabel = generate_label()
+                DSU_merge(p[1].falselabel, p[3].falselabel)
+                DSU_merge(p[0].falselabel, p[1].falselabel)
+                DSU_merge(p[0].truelabel, p[3].truelabel)
                 p[0].code = p[1].code + p[3].code
                 # p[0].code.append(p[1].code)
-                p[0].code.append(["beq", "$0", p[1].place, p[1].false])
+                p[0].code.append(["beq", "$0", p[1].place, p[1].falselabel])
                 # p[0].code.append(p[3].code)
-                p[0].code.append(["beq", "$0", p[3].place, p[3].false])
-                p[0].code.append(["j", p[3].true])
+                p[0].code.append(["beq", "$0", p[3].place, p[3].falselabel])
+                p[0].code.append(["j", p[3].truelabel])
 
         if lexeme == "|" or lexeme == "^" or lexeme == "&":
             if not (
@@ -3640,8 +4073,8 @@ def p_Expression(p):
                                 )
 
                             p[0].ast = add_edges(p)
-                    p[0].true = generate_label()
-                    p[0].false = generate_label()
+                    p[0].truelabel = generate_label()
+                    p[0].falselabel = generate_label()
             else:
                 print_compilation_error(
                     f"Compilation Error at line {p[1].line_num}: Incompatible data type with {lexeme} operator",
@@ -4239,7 +4672,7 @@ def p_UnaryExpr(p):  #  handle 3AC of STAR , BIT_AND
                     f"Compilation Error at line {p[1].line_num}: Cannot dereference variable of type {p[2].type}"
                 )
             p[0].place = get_token()
-            new_tok = p[2].place[1:]
+            new_tok = p[2].place[1:-2]
             p[0].code.append(["move", p[0].place, new_tok])
 
         elif p[1].val == "*":
@@ -4355,6 +4788,8 @@ def p_ShortVarDecl(p):
     global _current_scope
     global _current_size
 
+    prev_global_sp = _global_sp
+
     lexeme = ""
     if type(p[1]) is tuple:
         lexeme = p[1][0]
@@ -4411,20 +4846,25 @@ def p_ShortVarDecl(p):
             p[3].type = "STRING"
         elif p[3].type == "boolconst":
             p[3].type = "BOOL"
+
+        temp_pad = pad(_global_sp, p[3].type)
+        _global_sp += temp_pad
+        _current_size[_current_scope] += temp_pad
+
         # hNDLE FUNCTION TYPE
         if not p[3].type.startswith("ARRAY"):
             SYMBOL_TABLE[_current_scope][lexeme] = {}
             SYMBOL_TABLE[_current_scope][lexeme]["type"] = p[3].type
             if p[3].type.endswith("*"):
-                SYMBOL_TABLE[_current_scope][lexeme]["size"] = 8
+                _global_sp += 4
+                SYMBOL_TABLE[_current_scope][lexeme]["size"] = 4
                 SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
-                _current_size[_current_scope] += 8
-                _global_sp += 8
+                _current_size[_current_scope] += 4
             else:
+                _global_sp += _size[p[3].type]
                 SYMBOL_TABLE[_current_scope][lexeme]["size"] = _size[p[3].type]
                 SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
                 _current_size[_current_scope] += _size[p[3].type]
-                _global_sp += _size[p[3].type]
 
         else:
             i = 0
@@ -4442,16 +4882,19 @@ def p_ShortVarDecl(p):
             if typ == "struct":
                 typ = typ + " " + temp[i + 1]
             if typ.endswith("*"):
-                SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * 8
+                _global_sp += Quant * 4
+                SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * 4
                 SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
-                _current_size[_current_scope] += Quant * 8
-                _global_sp += Quant * 8
+                _current_size[_current_scope] += Quant * 4
             else:
+                _global_sp += Quant * _size[typ]
                 SYMBOL_TABLE[_current_scope][lexeme]["size"] = Quant * _size[typ]
                 SYMBOL_TABLE[_current_scope][lexeme]["offset"] = _global_sp
                 _current_size[_current_scope] += Quant * _size[typ]
-                _global_sp += Quant * _size[typ]
             SYMBOL_TABLE[_current_scope][lexeme]["array"] = dim
+
+    diff = str(prev_global_sp - _global_sp)
+    p[0].code.append(["addi", "$sp", "$sp", diff])
 
 
 # Function Declaration
@@ -4459,7 +4902,7 @@ def p_ShortVarDecl(p):
 
 def p_func_decl(p):
     """FunctionDecl : funcBegin FunctionName Signature  FunctionBody"""
-
+    global _current_function_name
     # arg_list = []
     # for i in p[3].children:
     #     arg_list.append(i.type)
@@ -4470,20 +4913,22 @@ def p_func_decl(p):
     #     arg_list.append(i.type)
     p[0].ast = add_edges(p)
 
-    p[0].code = [[SYMBOL_TABLE[0][_current_function_name]["jumpLabel"]]]
+    p[0].code = [[SYMBOL_TABLE[0][_current_function_name]["jumpLabel"] + ":"]]
     ###################
     p[0].code += [["addi", "$sp", "$sp", -4]]
     p[0].code += [["sw", "$fp", "($sp)"]]
     p[0].code += [["addi", "$fp", "$sp", 4]]
     p[0].code += [["addi", "$sp", "$sp", -4]]
     p[0].code += [["sw", "$ra", "($sp)"]]
+    ################
+    global _main_declared
+    global _global_code_list
+
+    if p[2].val == MAIN_FUNCTION:
+        _main_declared = True
+        p[0].code += _global_code_list
     ###################
     p[0].code += p[4].code
-    ###################
-    p[0].code += [["lw", "$ra", -8, "($fp)"]]
-    p[0].code += [["move" "$sp", "$fp"]]
-    p[0].code += [["lw", "$fp", -4, "($fp)"]]
-    p[0].code += [["jr", "$ra"]]
     ###################
 
     global _current_scope
@@ -4492,11 +4937,6 @@ def p_func_decl(p):
 
     _global_sp -= _current_size[_current_scope]
     _current_scope = _parent[_current_scope]
-
-    global _main_declared
-
-    if p[2].name == "main":
-        _main_declared = False
 
     # check if the function already exists else add to symbol table
     # if p[2].val in SYMBOL_TABLE[0].keys():
@@ -4523,7 +4963,7 @@ def p_funcBegin(p):
     global _current_size
     global _global_sp
 
-    _global_sp = 0
+    _global_sp = 8
 
     _parent[_next_scope] = _current_scope
     _current_scope = _next_scope
@@ -4560,6 +5000,9 @@ def p_FunctionName(p):
 
     else:
         SYMBOL_TABLE[0][_current_function_name] = {}
+        SYMBOL_TABLE[0][_current_function_name]["jumpLabel"] = get_function_label(
+            lexeme
+        )
         SYMBOL_TABLE[0][_current_function_name]["func"] = 1
 
     p[0].ast = add_edges(p)
@@ -4592,6 +5035,8 @@ def p_Signature(p):
     p[0].children = p[1].children
 
     arg_list = []
+    arg_forward_offset = []
+    dummy_sp = 0
 
     ## adding arguments in symbol table
     for child in p[0].children:
@@ -4603,11 +5048,15 @@ def p_Signature(p):
 
         SYMBOL_TABLE[_current_scope][child.val] = {}
         SYMBOL_TABLE[_current_scope][child.val]["type"] = child.type
-        SYMBOL_TABLE[_current_scope][child.val]["size"] = _size.get(child.type, 0)
+
+        val_child = 0
+        val_child = _size.get(child.type, 0)
+
         if child.type.endswith("*"):
-            SYMBOL_TABLE[_current_scope][child.val]["size"] = 8
+            val_child = 4
         else:
-            SYMBOL_TABLE[_current_scope][child.val]["size"] = _size.get(child.type, 0)
+            val_child = _size.get(child.type, 0)
+
         arg_list.append(child.type)
 
         if child.type.startswith("ARRAY"):
@@ -4624,10 +5073,25 @@ def p_Signature(p):
             if typ == "struct":
                 typ = typ + " " + temp[i + 1]
             if typ.endswith("*"):
-                SYMBOL_TABLE[_current_scope][child.val]["size"] = Quant * 8
+                val_child = Quant * 4
             else:
-                SYMBOL_TABLE[_current_scope][child.val]["size"] = Quant * _size[typ]
+                val_child = Quant * _size[typ]
             SYMBOL_TABLE[_current_scope][child.val]["array"] = dim
+
+        padd_val = pad(dummy_sp, child.type)
+        dummy_sp += padd_val
+        dummy_sp += val_child
+        arg_forward_offset.append(dummy_sp)
+
+    final_pad = pad(dummy_sp, "INT")
+    dummy_sp += final_pad
+
+    itr = 0
+    for child in p[0].children:
+        SYMBOL_TABLE[_current_scope][child.val]["offset"] = (
+            arg_forward_offset[itr] - dummy_sp
+        )
+        itr += 1
 
     SYMBOL_TABLE[0][_current_function_name]["argumentList"] = arg_list
     SYMBOL_TABLE[0][_current_function_name]["type"] = p[0].type
@@ -4706,8 +5170,6 @@ def p_IfStmt_1(p):
     global _current_scope
     global _parent
 
-    _global_sp -= _current_size[_current_scope]
-    _current_scope = _parent[_current_scope]
     p[0].ast = add_edges(p)
 
     ## can apply type chek if required
@@ -4725,7 +5187,7 @@ def p_IfStmt_1(p):
 
         p[0].code.append(["beq", p[2].place, "$0", newlabel])
 
-        p[0].code.append([p[2].true])
+        p[0].code.append([p[2].truelabel])
         p[0].code += p[3].code
         p[0].code.append(["j", exit_label])
         p[0].code.append([newlabel])
@@ -4740,9 +5202,9 @@ def p_IfStmt_1(p):
 
         p[0].code = p[2].code
         p[0].code += p[4].code
-        newlabel = p[4].false  # to be implemented
+        newlabel = p[4].falselabel  # to be implemented
         p[0].code.append(["beq", p[2].place, "$0", newlabel])
-        p[0].code.append([p[4].true])
+        p[0].code.append([p[4].truelabel])
         p[0].code += p[5].code
         p[0].code.append(["j", exit_label])
         p[0].code.append([newlabel])
@@ -4756,15 +5218,20 @@ def p_IfStmt_1(p):
             )
         p[0].code = p[2].code
         p[0].code += p[4].code
-        newlabel = p[4].false  # to be implemented
+        newlabel = p[4].falselabel  # to be implemented
         p[0].code.append(["beq", p[2].place, "$0", newlabel])
-        p[0].code.append([p[4].true])
+        p[0].code.append([p[4].truelabel])
         p[0].code += p[5].code
         newlabel1 = generate_label()
         p[0].code.append(["j", newlabel1])
         p[0].code.append([newlabel])
         p[0].code += p[5].code
         p[0].code.append([newlabel1])
+
+    p[0].code.append(["addi", "$sp", "$sp", _current_size[_current_scope]])
+
+    _global_sp -= _current_size[_current_scope]
+    _current_scope = _parent[_current_scope]
 
 
 def p_IfStmt_2(p):
@@ -4776,8 +5243,6 @@ def p_IfStmt_2(p):
     global _global_sp
     global _current_scope
 
-    _global_sp -= _current_size[_current_scope]
-    _current_scope = _parent[_current_scope]
     p[0].ast = add_edges(p)
 
     ## can apply type check if required
@@ -4809,15 +5274,20 @@ def p_IfStmt_2(p):
 
         p[0].code = p[2].code
         p[0].code += p[4].code
-        newlabel = p[4].false  # to be implemented
+        newlabel = p[4].falselabel  # to be implemented
         p[0].code.append(["beq", p[2].place, "$0", newlabel])
-        p[0].code.append([p[4].true])
+        p[0].code.append([p[4].truelabel])
         p[0].code += p[5].code
         newlabel1 = generate_label()
         p[0].code.append(["j", newlabel1])
         p[0].code.append([newlabel])
         p[0].code += p[5].code
         p[0].code.append([newlabel1])
+
+    p[0].code.append(["addi", "$sp", "$sp", _current_size[_current_scope]])
+
+    _global_sp -= _current_size[_current_scope]
+    _current_scope = _parent[_current_scope]
 
 
 def p_IfStmt_3(p):
@@ -4827,8 +5297,6 @@ def p_IfStmt_3(p):
     global _global_sp
     global _current_scope
 
-    _global_sp -= _current_size[_current_scope]
-    _current_scope = _parent[_current_scope]
     p[0].ast = add_edges(p)
 
     if p[2].type != "BOOL" and p[2].type != "boolconst":
@@ -4837,16 +5305,21 @@ def p_IfStmt_3(p):
         )
 
     p[0].code = p[2].code
-    newlabel = p[2].false  # to be implemented
+    newlabel = p[2].falselabel  # to be implemented
     p[0].code.append(["beq", p[2].place, "$0", newlabel])
 
-    p[0].code.append([p[2].true])
+    p[0].code.append([p[2].truelabel])
     p[0].code += p[3].code
     newlabel1 = generate_label()
     p[0].code.append(["j", newlabel1])
     p[0].code.append([newlabel])
     p[0].code += p[5].code
     p[0].code.append([newlabel1])
+
+    p[0].code.append(["addi", "$sp", "$sp", _current_size[_current_scope]])
+
+    _global_sp -= _current_size[_current_scope]
+    _current_scope = _parent[_current_scope]
 
 
 # def p_IfStmt(p):
@@ -4880,9 +5353,7 @@ def p_IfBegin(p):
 
 
 def p_SwitchStmt(p):
-    """SwitchStmt : SWITCH ExpressionSwitch LEFT_BRACE expr_case_clause_list RIGHT_BRACE
-    | SWITCH LEFT_BRACE  expr_case_clause_list RIGHT_BRACE
-    """
+    """SwitchStmt : SWITCH ExpressionSwitch LEFT_BRACE expr_case_clause_list RIGHT_BRACE"""
     p[0] = Node(name="SwitchStmt", val="", type="", children=[], line_num=p.lineno(1))
 
     global _exit_label_switch
@@ -4996,6 +5467,8 @@ def p_ExprCaseClause(p):
     )
     global _current_switch_place
     global _exit_label_switch
+    global _current_size
+    global _current_scope
 
     newlabel = generate_label()
     newlabel1 = generate_label()
@@ -5010,14 +5483,13 @@ def p_ExprCaseClause(p):
     p[0].code.append(["j", newlabel1])
     p[0].code.append([newlabel])
     p[0].code += p[3].code
+    p[0].code.append(["addi", "$sp", "$sp", _current_size[_current_scope]])
     p[0].code.append(["j", _exit_label_switch])
     p[0].code.append([newlabel1])
 
     p[0].type = p[1].type
     p[0].ast = add_edges(p)
 
-    global _current_scope
-    global _current_size
     global _global_sp
 
     _global_sp -= _current_size[_current_scope]
@@ -5034,8 +5506,6 @@ def p_ForStmt_1(p):
     global _current_size
     global _global_sp
 
-    _global_sp -= _current_size[_current_scope]
-    _current_scope = _parent[_current_scope]
     p[0].ast = add_edges(p)
 
     global _break_label
@@ -5059,6 +5529,11 @@ def p_ForStmt_1(p):
 
     _loop_depth -= 1
 
+    p[0].code.append(["addi", "$sp", "$sp", _current_size[_current_scope]])
+
+    _global_sp -= _current_size[_current_scope]
+    _current_scope = _parent[_current_scope]
+
 
 def p_ForStmt_2(p):
     """ForStmt : ForBegin ForClause Block"""
@@ -5070,8 +5545,6 @@ def p_ForStmt_2(p):
     global _current_size
     global _global_sp
 
-    _global_sp -= _current_size[_current_scope]
-    _current_scope = _parent[_current_scope]
     p[0].ast = add_edges(p)
 
     p[0].code = p[2].code
@@ -5084,6 +5557,11 @@ def p_ForStmt_2(p):
     p[0].code.append([_break_label[_loop_depth]])
 
     _loop_depth -= 1
+
+    p[0].code.append(["addi", "$sp", "$sp", _current_size[_current_scope]])
+
+    _global_sp -= _current_size[_current_scope]
+    _current_scope = _parent[_current_scope]
 
 
 # def p_ForStmt(p):
@@ -5292,12 +5770,20 @@ def main():
     global _symbol_table_dump_filename
     global _ast_filename
     global _ast_plot_filename
-    global _ircode_filename
+    global _mipscode_filename
 
     argparser = argparse.ArgumentParser(
         description="A parser for the source language that outputs the Parser Automaton in a graphical form."
     )
     argparser.add_argument("filepath", type=str, help="Path for your go program")
+    argparser.add_argument(
+        "--output",
+        type=str,
+        default=None,
+        help="(Optional) Filename for your output MIPS",
+    )
+    argparser.add_argument("--debug", action="store_true")
+    argparser.set_defaults(feature=True)
     args = argparser.parse_args()
 
     go_filename = os.path.basename(args.filepath)
@@ -5307,7 +5793,11 @@ def main():
     _symbol_table_dump_filename = SYMBOL_TABLE_DUMP_FILENAME.format(go_filename)
     _ast_filename = AST_FILENAME.format(go_filename)
     _ast_plot_filename = AST_PLOT_FILENAME.format(go_filename)
-    _ircode_filename = IRCODE_FILENAME.format(go_filename)
+
+    if args.output:
+        _mipscode_filename = args.output
+    else:
+        _mipscode_filename = MIPSCODE_FILENAME.format(go_filename)
 
     with open(args.filepath) as f:
         program = f.read().rstrip() + "\n"
@@ -5329,11 +5819,12 @@ def main():
 
     print("> AST dotfile generation ended")
 
-    print_success("> SYMBOL TABLE:")
-    pprint(SYMBOL_TABLE)
+    if args.debug:
+        print_success("> SYMBOL TABLE:")
+        pprint(SYMBOL_TABLE)
 
-    print_success("> 3AC Code")
-    pprint(_mips_code)
+        print_success("> MIPS Code")
+        pprint(_mips_code)
 
     graphs = pydot.graph_from_dot_file(_ast_filename)
     graph = graphs[0]
@@ -5341,14 +5832,14 @@ def main():
 
     dump_symbol_table()
 
-    write_ircode(_ircode_filename, _mips_code)
+    write_code(_mipscode_filename, _mips_code)
 
     print(
         f"> Dump of the Symbol Table has been saved as '{_symbol_table_dump_filename}'"
     )
     print(f"> Dump of the AST has been saved as '{_ast_filename}'")
     print(f"> Dump of the AST has been plotted in '{_ast_plot_filename}'")
-    print(f"> 3AC code has been saved in '{_ircode_filename}'")
+    print(f"> MIPS code has been saved in '{_mipscode_filename}'")
 
     print_success("Semantic Analysis done successfully")
 
