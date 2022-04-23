@@ -400,7 +400,7 @@ def p_start(p):
             if type(_mips_code[i][j]) is str:
                 curr = _mips_code[i][j]
                 if curr.startswith("("):
-                    curr = curr[1:-2]
+                    curr = curr[1:-1]
                 temp = []
                 while curr.startswith("*"):
                     temp.append(curr[-1])
@@ -1584,7 +1584,7 @@ def p_VarSpec(p):
                 p[0].code.append(find_addr_of_variable(lexeme, p[0].place))
                 p[0].code.append(
                     [
-                        get_store_instruction(p[4].type),
+                        get_store_instruction(p[2].type),
                         p[4].place,
                         "(" + p[0].place[1:-2] + ")",
                     ]
@@ -1646,7 +1646,7 @@ def p_VarSpec(p):
                 p[0].code.append(find_addr_of_variable(lexeme, p[0].place))
                 p[0].code.append(
                     [
-                        get_store_instruction(p[4].type),
+                        get_store_instruction(p[2].type),
                         p[4].place,
                         "(" + p[0].place[1:-2] + ")",
                     ]
@@ -1670,7 +1670,7 @@ def p_VarSpec(p):
                 p[0].code.append(find_addr_of_variable(lexeme, p[0].place))
                 p[0].code.append(
                     [
-                        get_store_instruction(p[4].type),
+                        get_store_instruction(p[2].type),
                         p[4].place,
                         "(" + p[0].place[1:-2] + ")",
                     ]
@@ -2973,6 +2973,23 @@ def p_PrimaryExpr_6(p):
 
         _global_sp += NUM_REGISTERS * 4
 
+        p[0].code += [["jal", SYMBOL_TABLE[0][p[1].val]["jumpLabel"]]]
+        p[0].code += [["addi", "$sp", "$sp", -1 * total_val]]
+        ## Just doing it for 2 regs now
+        ##remember the reverse
+
+        for i in range(NUM_REGISTERS):
+            ## retrieve in reverse order
+            p[0].code += [["lw", f"$t{NUM_REGISTERS-1-i}", "($sp)"]]
+            p[0].code += [["addi", "$sp", "$sp", 4]]
+
+        _global_sp -= NUM_REGISTERS * 4  # TODO depends on the number of registers
+
+        p[0].code += [["addi", "$sp", "$sp", padd_val]]
+        p[0].code += [["move", p[0].place, "$v0"]]
+
+        _global_sp -= padd_val
+
     if len(p) == 5:  # check with antreev
         p[0] = Node(
             name="FunctionCall",
@@ -2981,7 +2998,7 @@ def p_PrimaryExpr_6(p):
             type=p[1].type,
             children=[],
         )
-        p[0].code = []
+        p[0].code = p[3].code
         p[0].ast = add_edges(p, [2, 4])
         if (
             p[1].val not in SYMBOL_TABLE[0].keys()
@@ -3017,7 +3034,7 @@ def p_PrimaryExpr_6(p):
                 arg_print = p[3].children[0]
 
                 if arg_print.type in ["FLOAT32", "FLOAT64", "floatconst"]:
-                    p[0].code += [["move", "$f12", arg_print.place]]
+                    p[0].code += [["mov.s", "$f12", arg_print.place]]
                     p[0].code += [["li", "$v0", 2]]
                 elif arg_print.type in ["stringconst", "STRING"]:
                     pass
@@ -3158,7 +3175,7 @@ def p_PrimaryExpr_6(p):
                     p[0].code += [["addi", "$sp", "$sp", -temp_global_sp - val]]
                     p[0].code += [
                         [
-                            get_store_instruction(arguments),
+                            get_store_instruction(p[3].children[i].type),
                             p[3].children[itr].place,
                             "($sp)",
                         ]
@@ -3173,22 +3190,22 @@ def p_PrimaryExpr_6(p):
             p[0].code += [["addi", "$sp", "$sp", -final_pad]]
             total_val = _global_sp - init_global_sp
 
-    p[0].code += [["jal", SYMBOL_TABLE[0][p[1].val]["jumpLabel"]]]
-    p[0].code += [["addi", "$sp", "$sp", -1 * total_val]]
-    ## Just doing it for 2 regs now
-    ##remember the reverse
+            p[0].code += [["jal", SYMBOL_TABLE[0][p[1].val]["jumpLabel"]]]
+            p[0].code += [["addi", "$sp", "$sp", -1 * total_val]]
+            ## Just doing it for 2 regs now
+            ##remember the reverse
 
-    for i in range(NUM_REGISTERS):
-        ## retrieve in reverse order
-        p[0].code += [["lw", f"$t{NUM_REGISTERS-1-i}", "($sp)"]]
-        p[0].code += [["addi", "$sp", "$sp", 4]]
+            for i in range(NUM_REGISTERS):
+                ## retrieve in reverse order
+                p[0].code += [["lw", f"$t{NUM_REGISTERS-1-i}", "($sp)"]]
+                p[0].code += [["addi", "$sp", "$sp", 4]]
 
-    _global_sp -= NUM_REGISTERS * 4  # TODO depends on the number of registers
+            _global_sp -= NUM_REGISTERS * 4  # TODO depends on the number of registers
 
-    p[0].code += [["addi", "$sp", "$sp", padd_val]]
-    p[0].code += [["move", p[0].place, "$v0"]]
+            p[0].code += [["addi", "$sp", "$sp", padd_val]]
+            p[0].code += [["move", p[0].place, "$v0"]]
 
-    _global_sp -= padd_val
+            _global_sp -= padd_val
 
 
 def p_PrimaryExpr_7(p):
@@ -3404,7 +3421,7 @@ def p_BasicLit_2(p):  # DONE
         type="floatconst",
         children=[],
     )
-    p[0].place = get_token()
+    p[0].place = get_f_token()
     p[0].code.append(["li.s", p[0].place, lexeme])
     p[0].ast = add_edges(p)
 

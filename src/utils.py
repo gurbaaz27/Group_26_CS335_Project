@@ -10,9 +10,8 @@ __description__ = "Helper/Utility functions for compiler."
 
 
 import sys
-from pprint import pprint
 
-from constants import TOKENS_TO_IGNORE
+from constants import MAIN_FUNCTION, TOKENS_TO_IGNORE
 from classes import Format
 
 
@@ -46,8 +45,6 @@ def print_failure(err: str):
 
 
 def operate(op1, op, op2):
-    # Alternate :
-    # return eval(f"{op1} {op} {op2}")
     if op[0] == "+":
         return op1 + op2
     if op[0] == "-":
@@ -167,10 +164,10 @@ def write_code(filename: str, mipscode):
             else:
                 f.write(code + "\n")
 
-            pre = line[0]
+            pre : str = line[0]
             if pre == "":
                 flag = False
-            if pre.startswith("__func_") or pre.startswith(".data"):
+            if pre.startswith("__func_") or pre.startswith(MAIN_FUNCTION) or pre.startswith(".data"):
                 flag = True
 
 
@@ -232,6 +229,8 @@ def equalarray(p, q):
 
 
 def get_function_label(function_name):
+    if function_name == MAIN_FUNCTION:
+        return function_name
     return "__func_" + function_name
 
 
