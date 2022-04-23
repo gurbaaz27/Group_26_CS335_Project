@@ -1,5 +1,8 @@
 test=1
 
+final:
+	python src/parser.py tests/final/${test}.go
+
 
 ir:
 	python src/parser.py tests/3ac/${test}.go
@@ -39,3 +42,4 @@ clean:
 	rm -rf *.csv
 	rm -rf *.png
 	rm -rf *.3ac
+	rm -rf *.s
