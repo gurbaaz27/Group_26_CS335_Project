@@ -918,7 +918,7 @@ def p_SourceFile(p):
 
     if package == MAIN_FUNCTION and not _main_declared:
         print_compilation_error(
-            f"Compilation Error at line {p.lineno(1)}: Function {MAIN_FUNCTION} is undeclared in the {MAIN_FUNCTION} package"
+            f"Compilation Error: Function {MAIN_FUNCTION} is undeclared in the {MAIN_FUNCTION} package"
         )
 
     p[0].code = [[".data"]]
