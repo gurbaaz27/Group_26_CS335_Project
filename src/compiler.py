@@ -5,8 +5,8 @@
 ######################################
 
 __author__ = "Group 26, CS335A"
-__filename__ = "parser.py"
-__description__ = "A parser for the source language that outputs the Parser Automaton in a graphical form."
+__filename__ = "compiler.py"
+__description__ = "A compiler for the source language that outputs the MIPS Code."
 
 import os
 import sys
@@ -928,7 +928,7 @@ def p_SourceFile(p):
 
     p[0].code += [[""]]
     p[0].code += [[".text"], [f".globl {get_function_label(MAIN_FUNCTION)}"], [""]]
-    p[0].code += p[3].code
+    p[0].code += p[4].code
     p[0].code += [[""]]
     p[0].code += MIPS_SCANF
     p[0].code += [[""]]
