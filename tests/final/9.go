@@ -2,8 +2,21 @@ package main
 
 // var b int = 9
 
+// func hello() {
+// 	printf(4.0)
+// 	return
+// }
+
 func main() {
-	printf(3)
+	// var a int = 1
+	// var b int = 2
+	// printf(a + b)
+	var a float64 = 4.0
+	printf(a)
+	// printf(s + a)
+	// var b int = 1
+	// printf(b << 4)
+	// hello()
 
 	// if i > 10 {py
 	// 	i = i + 1

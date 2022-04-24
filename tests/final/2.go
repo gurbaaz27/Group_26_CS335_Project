@@ -1,9 +1,10 @@
 package main
 
-// var b int = 9
+var b int = 9
 
 func main() {
-	printf(3)
+	b++
+	printf(b)
 
 	// if i > 10 {py
 	// 	i = i + 1

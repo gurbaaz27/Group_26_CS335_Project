@@ -2,8 +2,21 @@ package main
 
 // var b int = 9
 
+// func hello() {
+// 	printf(4.0)
+// 	return
+// }
+
 func main() {
-	printf(3)
+	// var a int = 1
+	// var b int = 2
+	// printf(a + b)
+	const s string = "hello"
+	const a string = " WORLD"
+	// printf(s + a)
+	// var b int = 1
+	// printf(b << 4)
+	// hello()
 
 	// if i > 10 {py
 	// 	i = i + 1
