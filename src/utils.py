@@ -166,7 +166,7 @@ def write_code(filename: str, mipscode):
             # code = code.replace(" f", " $f")
             # code = code.replace(" (f", " ($f")
 
-            pre : str = line[0]
+            pre: str = line[0]
 
             for label in LABELS:
                 if pre.startswith(label):
@@ -243,3 +243,20 @@ def get_function_label(function_name):
 
 def get_global_label(variable_name):
     return "__global_" + variable_name
+
+
+def get_int_const(number):
+    if len(number) == 1:
+        return int(number)
+
+    else:
+        if number[1] == "x" or number[1] == "X":
+            return int(number, 16)
+        elif number[0] == "0" or number[1] == "o" or number[1] == "O":
+            return int(number, 8)
+        else:
+            return int(number)
+
+
+def get_float_const(number):
+   return format(float(number),".5f")
