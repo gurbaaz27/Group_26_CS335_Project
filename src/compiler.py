@@ -3947,7 +3947,7 @@ def p_BasicLit_4(p):  # DONE
     )
     p[0].place = get_token()
 
-    if lexeme == "True":
+    if lexeme == "true":
         p[0].code.append(["addi", p[0].place, "$0", "1"])
     else:
         p[0].code.append(["move", p[0].place, "$0"])
