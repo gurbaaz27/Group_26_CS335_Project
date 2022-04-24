@@ -1,43 +1,24 @@
 package main
 
-// var b int = 9
-
-// func hello() {
-// 	printf(4.0)
-// 	return
-// }
 type JobStatusResponse struct {
-	JobId   int64
-	Status  int64
-	Message float64
+	// JobId   int64
+	// Status  int64
+	// Message float64
+	Remarks string
 }
 
 func main() {
-	// var a int = 1
-	// var b int = 2
-	// printf(a + b)
 	var a JobStatusResponse
-	a.JobId = 22
-	a.Status = 98
-	a.Message = 22.5
-	printf(a.Status)
-	printf(a.JobId)
-	printf(a.Message)
-	// printf(s + a)
-	// var b int = 1
-	// printf(b << 4)
-	// hello()
+	// a.JobId = 22
+	// a.Status = 98
+	// a.Message = 22.5
+	a.Remarks = "ohh yeaaaah"
+	// var c string = "hello"
+	// printf(a.Status)
+	// printf(a.JobId)
+	// printf(a.Message)
+	const b string = a.Remarks 
+	printf(b)
 
-	// if i > 10 {py
-	// 	i = i + 1
-	// } else {
-	// 	i = i + 2
-	// }
-	// b = 10
-	// var b int8 = 5
-	// b = 11
-	// var b bool = true
-	// var c float64 = 0.9
-	// a = a + 5
 	return
 }

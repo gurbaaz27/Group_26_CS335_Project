@@ -1705,10 +1705,6 @@ def p_TypeDef(p):
         CurrSize += pad(CurrSize, typ)
         print("Hello", CurrSize, typ)
         _offset[sym][CurrName] = CurrSize
-        if temp[i].endswith("*"):
-            CurrSize += Quant * 4
-        else:
-            CurrSize += Quant * _size[isStruct + temp[i]]
         i = i + 1
         curr.append(typ)
         fields.append(curr)
@@ -3042,7 +3038,8 @@ def p_Assignment_2(p):
                 )
 
                 str_len = len(p[3].val) + 4
-                new_reg = get_token()               
+                new_reg = get_token()        
+                p[0].code = p[1].code + p[3].code       
                 p[0].code.append(["li", "$a0", str_len])
                 p[0].code.append(["li", "$v0",9])
                 p[0].code.append(["syscall"])
@@ -3475,35 +3472,49 @@ def p_PrimaryExpr_6(p):
 
             if p[1].val == "printf":
                 ## Number of arguments should be 1 in print
-                if 1 != len(p[3].children):
-                    print_compilation_error(
-                        f"Compilation Error at line {p[1].line_num}: Incorrect number of arguments for function call print"
-                    )
+                # if 1 != len(p[3].children):
+                #     print_compilation_error(
+                #         f"Compilation Error at line {p[1].line_num}: Incorrect number of arguments for function call print"
+                #     )
 
                 #####
                 # Register
-                arg_print = p[3].children[0]
 
-                if arg_print.type in ["FLOAT32", "FLOAT64", "floatconst"]:
-                    p[0].code += [["mov.s", "$f12", arg_print.place]]
-                    p[0].code += [["li", "$v0", 2]]
-                elif arg_print.type in ["stringconst", "STRING"]:
-                    p[0].code += [["move", "$t7", arg_print.place]]
-                    p[0].code += [["li", "$v0", 11]] 
-                elif (
-                    isint(arg_print.type)
-                    or arg_print.type in ["BOOL", "boolconst"]
-                    or arg_print.type.endswith("*")
-                ):
-                    p[0].code += [["move", "$a0", arg_print.place]]
-                    p[0].code += [["li", "$v0", 1]]
+                for itr2 in range(len(p[3].children)):
+                    arg_print = p[3].children[itr2]
 
-                else:
-                    print_compilation_error(
-                        f"Compilation Error at line {p[1].line_num}: Invalid arg in print"
-                    )
-                #####
-                p[0].code += [["jal", SYMBOL_TABLE[0][p[1].val]["jumpLabel"]]]
+                    if arg_print.type in ["FLOAT32", "FLOAT64", "floatconst"]:
+                        p[0].code += [["mov.s", "$f12", arg_print.place]]
+                        p[0].code += [["li", "$v0", 2]]
+                        p[0].code += [["jal", SYMBOL_TABLE[0][p[1].val]["jumpLabel"]]]
+                    elif arg_print.type in ["stringconst", "STRING"]:
+                        if(arg_print.type == "stringconst"):
+                            p[0].code += [["li", "$v0", 11]]
+                            for el in arg_print.val :
+                                p[0].code.append(["li","$a0",ord(el)])
+                                p[0].code.append(["syscall"])
+                        
+                            p[0].code.append(["la", "$a0", "__printf_newline"])
+                            p[0].code.append(["li", "$v0", 4])
+                            p[0].code.append(["syscall"])
+                        else:
+                            p[0].code += [["move", "$t7", arg_print.place]]
+                            p[0].code += [["li", "$v0", 11]] 
+                            p[0].code += [["jal", SYMBOL_TABLE[0][p[1].val]["jumpLabel"]]]
+                    elif (
+                        isint(arg_print.type)
+                        or arg_print.type in ["BOOL", "boolconst"]
+                        or arg_print.type.endswith("*")
+                    ):
+                        p[0].code += [["move", "$a0", arg_print.place]]
+                        p[0].code += [["li", "$v0", 1]]
+                        p[0].code += [["jal", SYMBOL_TABLE[0][p[1].val]["jumpLabel"]]]
+
+                    else:
+                        print_compilation_error(
+                            f"Compilation Error at line {p[1].line_num}: Invalid arg in print"
+                        )
+                    #####funaryexpr
 
             elif p[1].val == "scanf":
                 ## Number of arguments should be 1 in print
@@ -3718,7 +3729,7 @@ def p_PrimaryExpr_7(p):
         if curr_list[0] == lexeme:
             off = _offset[struct_name][lexeme]
 
-            # print(off, lexeme)
+            print(off, lexeme)
 
             temp_size = getsize(curr_list[1])
             if temp_size >= 10:
@@ -3743,6 +3754,7 @@ def p_PrimaryExpr_7(p):
             # p[0].type = temp[i]
             else:
                 p[0].type = curr_list[1]
+        
     if flag == 0:
         print_compilation_error(
             f"Compilation Error at line {p[1].line_num}: Field not declared in struct {struct_name}"
@@ -3750,6 +3762,7 @@ def p_PrimaryExpr_7(p):
 
     else:
         p[0].code.append(["addi", p[0].place[1:-2], p[1].place[1:-2], off])
+        print(p[0].code[-1])
 
 
 def p_PrimaryExpr_9(p):
@@ -4106,6 +4119,10 @@ def p_Expression(p):
     if len(p) == 2:
         p[0] = p[1]
         p[0].ast = add_edges(p)
+
+        if(p[0].type in ["boolconst","BOOL"]):
+            p[0].truelabel = generate_label()
+            p[0].falselabel = generate_label()
 
     else:
         lexeme = ""
@@ -5174,6 +5191,7 @@ def p_UnaryExpr(p):  #  handle 3AC of STAR , BIT_AND
                 type=p[2].type + "*",
                 children=[p[2]],
             )
+            p[0].code = p[2].code
             p[0].ast = add_edges(p)
             if p[2].type in ["intconst", "floatconst", "stringconst", "boolconst"] or (
                 not (p[2].place.startswith("*"))
@@ -5198,6 +5216,7 @@ def p_UnaryExpr(p):  #  handle 3AC of STAR , BIT_AND
                 type=p[2].type[: len(p[2].type) - 1],
                 children=[p[2]],
             )
+            p[0].code = p[2].code
             p[0].ast = add_edges(p)
             p[0].place = get_token()
             if p[0].type in ["FLOAT32", "FLOAT64"]:
