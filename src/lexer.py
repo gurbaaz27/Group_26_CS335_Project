@@ -285,6 +285,7 @@ def t_STRINGCONST(t):
     """
     global insert_semicolon
     insert_semicolon = True
+    t.value = t.value[1:-1]
     return t
 
 

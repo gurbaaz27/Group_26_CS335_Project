@@ -9,9 +9,10 @@ __filename__ = "utils.py"
 __description__ = "Helper/Utility functions for compiler."
 
 
+from pprint import pprint
 import sys
 
-from constants import MAIN_FUNCTION, TOKENS_TO_IGNORE
+from constants import LABELS, MAIN_FUNCTION, TOKENS_TO_IGNORE
 from classes import Format
 
 
@@ -148,9 +149,10 @@ def equal(s1, s2):
 
 def write_code(filename: str, mipscode):
     indent = " " * 4
-    flag = False
+    # pprint(mipscode)
     with open(filename, "w") as f:
         for line in mipscode:
+            flag = True
             code = ""
             if line[0].startswith("__LABEL"):
                 for word in line:
@@ -159,16 +161,21 @@ def write_code(filename: str, mipscode):
                 for word in line:
                     code += str(word) + " "
 
+            # code = code.replace(" t", " $t")
+            # code = code.replace(" (t", " ($t")
+            # code = code.replace(" f", " $f")
+            # code = code.replace(" (f", " ($f")
+
+            pre : str = line[0]
+
+            for label in LABELS:
+                if pre.startswith(label):
+                    flag = False
+
             if flag:
                 f.write(indent + code + "\n")
             else:
                 f.write(code + "\n")
-
-            pre : str = line[0]
-            if pre == "":
-                flag = False
-            if pre.startswith("__func_") or pre.startswith(MAIN_FUNCTION) or pre.startswith(".data"):
-                flag = True
 
 
 def get_store_instruction(s: str):
