@@ -98,6 +98,7 @@ _current_switch_place = ""
 _exit_label_switch = ""
 _break_label = {}
 _continue_label = {}
+_update_label = {}
 
 _current_number = 0
 
@@ -874,12 +875,12 @@ def p_BreakStmt(p):
                 f"Compilation Error at line {p[0].line_num}: Break argument should be none or an integer constant"
             )
 
-        if p[2].place > _loop_depth:
+        if int(p[2].val) > _loop_depth:
             print_compilation_error(
                 f"Compilation Error at line {p[0].line_num}: Break argument exceeds the number of loops"
             )
 
-        p[0].code = [["j", _break_label[_loop_depth + 1 - int(p[2].place)]]]
+        p[0].code = [["j", _break_label[_loop_depth + 1 - int(p[2].val)]]]
     else:
         p[0].code = [["j", _break_label[_loop_depth]]]
 
@@ -889,6 +890,7 @@ def p_ContinueStmt(p):
     """ContinueStmt : CONTINUE"""
     global _loop_depth
     global _continue_label
+    global _update_label
 
     p[0] = Node(name="ContinueStmt", val="", type="", line_num=p.lineno(1), children=[])
     p[0].ast = add_edges(p)
@@ -898,7 +900,7 @@ def p_ContinueStmt(p):
             f"Compilation Error at line {p[0].line_num}: Continue is not inside a loop"
         )
 
-    p[0].code = [["j", _continue_label[_loop_depth]]]
+    p[0].code = [["j", _update_label[_loop_depth]]]
 
 
 ## DECLARATION
@@ -3397,19 +3399,29 @@ def p_PrimaryExpr_6(p):
             p[0].code += [["addi", "$sp", "$sp", -4]]
             p[0].code += [["sw", f"$t{i}", "($sp)"]]
 
-        _global_sp += NUM_REGISTERS * 4
+        for i in range(NUM_REGISTERS):
+            ## retrieve in reverse order
+            p[0].code += [["addi", "$sp", "$sp", -4]]
+            p[0].code += [["s.s", f"$f{i}", "($sp)"]]
+
+        _global_sp += NUM_REGISTERS * 4 * 2
 
         p[0].code += [["jal", SYMBOL_TABLE[0][p[1].val]["jumpLabel"]]]
         p[0].code += [["addi", "$sp", "$sp", -1 * total_val]]
         ## Just doing it for 2 regs now
         ##remember the reverse
+        for i in range(NUM_REGISTERS):
+            ## retrieve in reverse order
+            p[0].code += [["l.s", f"$f{NUM_REGISTERS-1-i}", "($sp)"]]
+            p[0].code += [["addi", "$sp", "$sp", 4]]
 
         for i in range(NUM_REGISTERS):
             ## retrieve in reverse order
             p[0].code += [["lw", f"$t{NUM_REGISTERS-1-i}", "($sp)"]]
             p[0].code += [["addi", "$sp", "$sp", 4]]
 
-        _global_sp -= NUM_REGISTERS * 4  # TODO depends on the number of registers
+
+        _global_sp -= NUM_REGISTERS * 4 * 2  # TODO depends on the number of registers
 
         p[0].code += [["addi", "$sp", "$sp", padd_val]]
 
@@ -3453,7 +3465,12 @@ def p_PrimaryExpr_6(p):
                 p[0].code += [["addi", "$sp", "$sp", -4]]
                 p[0].code += [["sw", f"$t{i}", "($sp)"]]
 
-            _global_sp += NUM_REGISTERS * 4
+            for i in range(NUM_REGISTERS):
+                ## retrieve in reverse order
+                p[0].code += [["addi", "$sp", "$sp", -4]]
+                p[0].code += [["s.s", f"$f{i}", "($sp)"]]
+
+            _global_sp += NUM_REGISTERS * 4 * 2
 
             if p[1].val == "printf":
                 ## Number of arguments should be 1 in print
@@ -3530,13 +3547,17 @@ def p_PrimaryExpr_6(p):
                         print_compilation_error(
                             f"Compilation Error at line {p[1].line_num}: Invalid arg in print"
                         )
+            for i in range(NUM_REGISTERS):
+                ## retrieve in reverse order
+                p[0].code += [["l.s", f"$f{NUM_REGISTERS-1-i}", "($sp)"]]
+                p[0].code += [["addi", "$sp", "$sp", 4]]
 
             for i in range(NUM_REGISTERS):
                 ## retrieve in reverse order
                 p[0].code += [["lw", f"$t{NUM_REGISTERS-1-i}", "($sp)"]]
                 p[0].code += [["addi", "$sp", "$sp", 4]]
 
-            _global_sp -= NUM_REGISTERS * 4  # TODO depends on the number of registers
+            _global_sp -= NUM_REGISTERS * 4 * 2 # TODO depends on the number of registers
             p[0].code += [["addi", "$sp", "$sp", padd_val]]
             _global_sp -= padd_val
 
@@ -3568,7 +3589,12 @@ def p_PrimaryExpr_6(p):
                 p[0].code += [["addi", "$sp", "$sp", -4]]
                 p[0].code += [["sw", f"$t{i}", "($sp)"]]
 
-            _global_sp += NUM_REGISTERS * 4
+            for i in range(NUM_REGISTERS):
+                ## retrieve in reverse order
+                p[0].code += [["addi", "$sp", "$sp", -4]]
+                p[0].code += [["s.s", f"$f{i}", "($sp)"]]
+
+            _global_sp += NUM_REGISTERS * 4 * 2
 
             init_global_sp = _global_sp
 
@@ -3632,10 +3658,15 @@ def p_PrimaryExpr_6(p):
 
             for i in range(NUM_REGISTERS):
                 ## retrieve in reverse order
+                p[0].code += [["l.s", f"$f{NUM_REGISTERS-1-i}", "($sp)"]]
+                p[0].code += [["addi", "$sp", "$sp", 4]]
+
+            for i in range(NUM_REGISTERS):
+                ## retrieve in reverse order
                 p[0].code += [["lw", f"$t{NUM_REGISTERS-1-i}", "($sp)"]]
                 p[0].code += [["addi", "$sp", "$sp", 4]]
 
-            _global_sp -= NUM_REGISTERS * 4  # TODO depends on the number of registers
+            _global_sp -= NUM_REGISTERS * 4 * 2 # TODO depends on the number of registers
 
             p[0].code += [["addi", "$sp", "$sp", padd_val]]
 
@@ -4218,7 +4249,7 @@ def p_Expression(p):
 
                 else:
                     print_compilation_error(
-                        f"Compilation Error at line {p[1].line_num}: Incompatible data type with {lexeme} operator",
+                        f"Compilation Error at line {p[1].line_num}: Type mismatch with {lexeme} operator ({p[1].type} and {p[3].type})",
                     )
 
         if (
@@ -4234,7 +4265,7 @@ def p_Expression(p):
             ):  # should be exactly equal or atleast one is a constant
                 if notcomparable(p[1].type) or notcomparable(p[3].type):
                     print_compilation_error(
-                        f"Compilation Error at line {p[1].line_num}: Incompatible data type with {lexeme} operator",
+                        f"Compilation Error at line {p[1].line_num}: Type mismatch with {lexeme} operator ({p[1].type} and {p[3].type})",
                     )
 
                 else:
@@ -4299,7 +4330,7 @@ def p_Expression(p):
                             cal_token = p[3].place
                             if lexeme == "==":
                                 p[0].code.append(
-                                    ["c.eq.s", p[0].place, p[1].place, cal_token]
+                                    ["c.eq.s", p[1].place, cal_token]
                                 )
                                 temp_label = generate_label()
                                 p[0].code.append(["addi", p[0].place, "$0", "1"])
@@ -4308,7 +4339,7 @@ def p_Expression(p):
                                 p[0].code.append([temp_label])
                             elif lexeme == "!=":
                                 p[0].code.append(
-                                    ["c.eq.s", p[0].place, p[1].place, cal_token]
+                                    ["c.eq.s", p[1].place, cal_token]
                                 )
                                 temp_label = generate_label()
                                 p[0].code.append(["addi", p[0].place, "$0", "1"])
@@ -4317,7 +4348,7 @@ def p_Expression(p):
                                 p[0].code.append([temp_label])
                             elif lexeme == "<=":
                                 p[0].code.append(
-                                    ["c.le.s", p[0].place, p[1].place, cal_token]
+                                    ["c.le.s", p[1].place, cal_token]
                                 )
                                 temp_label = generate_label()
                                 p[0].code.append(["addi", p[0].place, "$0", "1"])
@@ -4326,7 +4357,7 @@ def p_Expression(p):
                                 p[0].code.append([temp_label])
                             elif lexeme == ">=":
                                 p[0].code.append(
-                                    ["c.lt.s", p[0].place, p[1].place, cal_token]
+                                    ["c.lt.s", p[1].place, cal_token]
                                 )
                                 temp_label = generate_label()
                                 p[0].code.append(["addi", p[0].place, "$0", "1"])
@@ -4335,7 +4366,7 @@ def p_Expression(p):
                                 p[0].code.append([temp_label])
                             elif lexeme == ">":
                                 p[0].code.append(
-                                    ["c.le.s", p[0].place, p[1].place, cal_token]
+                                    ["c.le.s", p[1].place, cal_token]
                                 )
                                 temp_label = generate_label()
                                 p[0].code.append(["addi", p[0].place, "$0", "1"])
@@ -4345,7 +4376,7 @@ def p_Expression(p):
 
                             elif lexeme == "<":
                                 p[0].code.append(
-                                    ["c.lt.s", p[0].place, p[1].place, cal_token]
+                                    ["c.lt.s", p[1].place, cal_token]
                                 )
                                 temp_label = generate_label()
                                 p[0].code.append(["addi", p[0].place, "$0", "1"])
@@ -4393,7 +4424,7 @@ def p_Expression(p):
 
                             if lexeme == "==":
                                 p[0].code.append(
-                                    ["c.eq.s", p[0].place, cal_token, p[3].place]
+                                    ["c.eq.s", cal_token, p[3].place]
                                 )
                                 temp_label = generate_label()
                                 p[0].code.append(["addi", p[0].place, "$0", "1"])
@@ -4402,7 +4433,7 @@ def p_Expression(p):
                                 p[0].code.append([temp_label])
                             elif lexeme == "!=":
                                 p[0].code.append(
-                                    ["c.eq.s", p[0].place, cal_token, p[3].place]
+                                    ["c.eq.s", cal_token, p[3].place]
                                 )  # p[0].code.append(["c.eq.s",p[0].place,p[1].place,cal_token])
                                 temp_label = generate_label()
                                 p[0].code.append(["addi", p[0].place, "$0", "1"])
@@ -4411,7 +4442,7 @@ def p_Expression(p):
                                 p[0].code.append([temp_label])
                             elif lexeme == "<=":
                                 p[0].code.append(
-                                    ["c.le.s", p[0].place, cal_token, p[3].place]
+                                    ["c.le.s", cal_token, p[3].place]
                                 )  # p[0].code.append(["c.le.s",p[0].place,p[1].place,cal_token])
                                 temp_label = generate_label()
                                 p[0].code.append(["addi", p[0].place, "$0", "1"])
@@ -4420,7 +4451,7 @@ def p_Expression(p):
                                 p[0].code.append([temp_label])
                             elif lexeme == ">=":
                                 p[0].code.append(
-                                    ["c.lt.s", p[0].place, cal_token, p[3].place]
+                                    ["c.lt.s", cal_token, p[3].place]
                                 )  # p[0].code.append(["c.lt.s",p[0].place,p[1].place,cal_token])
                                 temp_label = generate_label()
                                 p[0].code.append(["addi", p[0].place, "$0", "1"])
@@ -4429,19 +4460,16 @@ def p_Expression(p):
                                 p[0].code.append([temp_label])
                             elif lexeme == ">":
                                 p[0].code.append(
-                                    ["c.le.s", p[0].place, cal_token, p[3].place]
+                                    ["c.le.s", cal_token, p[3].place]
                                 )  # p[0].code.append(["c.le.s",p[0].place,p[1].place,cal_token])
                                 temp_label = generate_label()
                                 p[0].code.append(["addi", p[0].place, "$0", "1"])
                                 p[0].code.append(["bc1f", temp_label])
                                 p[0].code.append(["move", p[0].place, "$0"])
                                 p[0].code.append([temp_label])
-                                p[0].code.append(
-                                    ["addi", p[0].place, p[1].place, "-" + p[3].place]
-                                )
                             elif lexeme == "<":
                                 p[0].code.append(
-                                    ["c.lt.s", p[0].place, cal_token, p[3].place]
+                                    ["c.lt.s", cal_token, p[3].place]
                                 )  # p[0].code.append(["c.lt.s",p[0].place,p[1].place,cal_token])
                                 temp_label = generate_label()
                                 p[0].code.append(["addi", p[0].place, "$0", "1"])
@@ -4454,7 +4482,7 @@ def p_Expression(p):
                             p[0].place = get_token()
                             if lexeme == "==":
                                 p[0].code.append(
-                                    ["c.eq.s", p[0].place, p[1].place, p[3].place]
+                                    ["c.eq.s", p[1].place, p[3].place]
                                 )
                                 temp_label = generate_label()
                                 p[0].code.append(["addi", p[0].place, "$0", "1"])
@@ -4463,7 +4491,7 @@ def p_Expression(p):
                                 p[0].code.append([temp_label])
                             elif lexeme == "!=":
                                 p[0].code.append(
-                                    ["c.eq.s", p[0].place, p[1].place, p[3].place]
+                                    ["c.eq.s", p[1].place, p[3].place]
                                 )  # p[0].code.append(["c.eq.s",p[0].place,p[1].place,cal_token])
                                 temp_label = generate_label()
                                 p[0].code.append(["addi", p[0].place, "$0", "1"])
@@ -4472,7 +4500,7 @@ def p_Expression(p):
                                 p[0].code.append([temp_label])
                             elif lexeme == "<=":
                                 p[0].code.append(
-                                    ["c.le.s", p[0].place, p[1].place, p[3].place]
+                                    ["c.le.s", p[1].place, p[3].place]
                                 )  # p[0].code.append(["c.le.s",p[0].place,p[1].place,cal_token])
                                 temp_label = generate_label()
                                 p[0].code.append(["addi", p[0].place, "$0", "1"])
@@ -4481,7 +4509,7 @@ def p_Expression(p):
                                 p[0].code.append([temp_label])
                             elif lexeme == ">=":
                                 p[0].code.append(
-                                    ["c.lt.s", p[0].place, p[1].place, p[3].place]
+                                    ["c.lt.s", p[1].place, p[3].place]
                                 )  # p[0].code.append(["c.lt.s",p[0].place,p[1].place,cal_token])
                                 temp_label = generate_label()
                                 p[0].code.append(["addi", p[0].place, "$0", "1"])
@@ -4490,19 +4518,16 @@ def p_Expression(p):
                                 p[0].code.append([temp_label])
                             elif lexeme == ">":
                                 p[0].code.append(
-                                    ["c.le.s", p[0].place, p[1].place, p[3].place]
+                                    ["c.le.s", p[1].place, p[3].place]
                                 )  # p[0].code.append(["c.le.s",p[0].place,p[1].place,cal_token])
                                 temp_label = generate_label()
                                 p[0].code.append(["addi", p[0].place, "$0", "1"])
                                 p[0].code.append(["bc1f", temp_label])
                                 p[0].code.append(["move", p[0].place, "$0"])
                                 p[0].code.append([temp_label])
-                                p[0].code.append(
-                                    ["addi", p[0].place, p[1].place, "-" + p[3].place]
-                                )
                             elif lexeme == "<":
                                 p[0].code.append(
-                                    ["c.lt.s", p[0].place, p[1].place, p[3].place]
+                                    ["c.lt.s", p[1].place, p[3].place]
                                 )  # p[0].code.append(["c.lt.s",p[0].place,p[1].place,cal_token])
                                 temp_label = generate_label()
                                 p[0].code.append(["addi", p[0].place, "$0", "1"])
@@ -4548,7 +4573,7 @@ def p_Expression(p):
                     p[0].falselabel = generate_label()
             else:
                 print_compilation_error(
-                    f"Compilation Error at line {p[1].line_num}: Incompatible data type with {lexeme} operator",
+                    f"Compilation Error at line {p[1].line_num}: Type mismatch with {lexeme} operator ({p[1].type} and {p[3].type})",
                 )
 
         if lexeme == "<<" or lexeme == ">>":
@@ -4556,7 +4581,7 @@ def p_Expression(p):
                 isint(p[1].type) and isint(p[3].type)
             ):  # can be int 8, int 32 etc or intconst
                 print_compilation_error(
-                    f"Compilation Error at line {p[1].line_num}: Incompatible data type with {lexeme} operator",
+                    f"Compilation Error at line {p[1].line_num}: Type mismatch with {lexeme} operator ({p[1].type} and {p[3].type})",
                 )
 
             else:
@@ -4569,7 +4594,7 @@ def p_Expression(p):
                 )
                 if p[1].type == "intconst":
                     print_compilation_error(
-                        f"Compilation Error at line {p[1].line_num}: Incompatible data type with {lexeme} operator",
+                        f"Compilation Error at line {p[1].line_num}: Type mismatch with {lexeme} operator ({p[1].type} and {p[3].type})",
                     )
 
                 else:
@@ -4601,7 +4626,7 @@ def p_Expression(p):
 
                 if notcomparable(p[1].type) and  not ((p[1].type in ["STRING","stringconst"]) and p[2]=="+"):
                     print_compilation_error(
-                        f"Compilation Error at line {p[1].line_num}: Incompatible data type with {lexeme} operator",
+                        f"Compilation Error at line {p[1].line_num}: Type mismatch with {lexeme} operator ({p[1].type} and {p[3].type})",
                     )
                 else:
                     p[0] = Node(
@@ -5000,14 +5025,14 @@ def p_Expression(p):
                             p[0].ast = add_edges(p)
             else:
                 print_compilation_error(
-                    f"Compilation Error at line {p[1].line_num}: Incompatible data type with {lexeme} operator",
+                    f"Compilation Error at line {p[1].line_num}: Type mismatch with {lexeme} operator ({p[1].type} and {p[3].type})",
                 )
 
         if lexeme == "/":
             if equal(p[1].type, p[3].type) != "":
                 if notcomparable(p[1].type):
                     print_compilation_error(
-                        f"Compilation Error at line {p[1].line_num}: Incompatible data type with {lexeme} operator",
+                        f"Compilation Error at line {p[1].line_num}: Type mismatch with {lexeme} operator ({p[1].type} and {p[3].type})",
                     )
 
                 else:
@@ -5074,7 +5099,7 @@ def p_Expression(p):
                             p[0].ast = add_edges(p)
             else:
                 print_compilation_error(
-                    f"Compilation Error at line {p[1].line_num}: Incompatible data type with {lexeme} operator",
+                    f"Compilation Error at line {p[1].line_num}: Type mismatch with {lexeme} operator ({p[1].type} and {p[3].type})",
                 )
 
         if lexeme == "%":
@@ -5082,7 +5107,7 @@ def p_Expression(p):
                 isint(p[1].type) and isint(p[3].type)
             ):  # can be int 8, int 32 etc or intconst
                 print_compilation_error(
-                    f"Compilation Error at line {p[1].line_num}: Incompatible data type with {lexeme} operator",
+                    f"Compilation Error at line {p[1].line_num}: Type mismatch with {lexeme} operator ({p[1].type} and {p[3].type})",
                 )
 
             else:
@@ -5121,7 +5146,7 @@ def p_Expression(p):
                                 p[0].ast = add_edges(p)
                 else:
                     print_compilation_error(
-                        f"Compilation Error at line {p[1].line_num}: Incompatible data type with {lexeme} operator",
+                        f"Compilation Error at line {p[1].line_num}: Type mismatch with {lexeme} operator ({p[1].type} and {p[3].type})",
                     )
 
 
@@ -5240,6 +5265,8 @@ def p_UnaryExpr(p):  #  handle 3AC of STAR , BIT_AND
                     )
 
             if p[1].val == "!":
+                p[0].truelabel = generate_label()
+                p[0].falselabel = generate_label()
                 if p[2].type in ["boolconst"]:
                     p[0].place = get_token()
                     p[0].val = str(1 - int(p[0].val))
@@ -6162,6 +6189,7 @@ def p_ForStmt_1(p):
 
     global _break_label
     global _continue_label
+    global _update_label
     global _loop_depth
     p[0].code = [[_continue_label[_loop_depth]]]
 
@@ -6194,6 +6222,7 @@ def p_ForStmt_2(p):
     global _current_scope
     global _break_label
     global _continue_label
+    global _update_label
     global _current_size
     global _global_sp
 
@@ -6203,6 +6232,7 @@ def p_ForStmt_2(p):
     p[0].code += p[3].code
 
     if len(p[2].update) != 0:
+        p[0].code += [[_update_label[_loop_depth]]]
         p[0].code += p[2].update
 
     p[0].code.append(["j", _continue_label[_loop_depth]])
@@ -6236,6 +6266,7 @@ def p_ForBegin(p):
     global _current_scope
     global _next_scope
     global _continue_label
+    global _update_label
     global _break_label
     global _current_size
 
@@ -6250,9 +6281,11 @@ def p_ForBegin(p):
 
     newlabel = generate_label()
     newlabel1 = generate_label()
+    newlabel2 = generate_label()
 
     _continue_label[_loop_depth] = newlabel
     _break_label[_loop_depth] = newlabel1
+    _update_label[_loop_depth] = newlabel2
 
 
 # TODO scope size -= for each end scope of for if
