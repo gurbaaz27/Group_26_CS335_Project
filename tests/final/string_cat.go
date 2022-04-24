@@ -11,13 +11,9 @@ func main() {
 	// var a int = 1
 	// var b int = 2
 	// printf(a + b)
-	var a int = 5
-	var i int
-	for i = 0; i < 5; i = i + 1 { // incdec doesnt work rn
-		a = a + 1
-	}
-	printf(a)
-	// printf(s + a)
+	const s string = "hello"
+	const a string = " WORLD"
+	printf(s + a)
 	// var b int = 1
 	// printf(b << 4)
 	// hello()
