@@ -68,6 +68,8 @@ NUM_REGISTERS = 8
 SYMBOL_TABLE = []
 SYMBOL_TABLE.append({})
 array_init_list = []
+register_map = {}
+token_map = {}
 
 _mips_code = ""
 
@@ -213,13 +215,13 @@ def DSU_merge(x, y):
 def get_token():
     global _token_counter
     _token_counter += 1
-    return "t" + str(_token_counter - 1)
+    return "#t" + str(_token_counter - 1)
 
 
 def get_f_token():
     global _token_f_counter
     _token_f_counter += 1
-    return "f" + str(_token_f_counter - 1)
+    return "#f" + str(_token_f_counter - 1)
 
 
 def get_id_token():
@@ -360,6 +362,20 @@ def find_addr_of_variable(lexeme, reg):
         return code
 
 
+def get_free_register():
+    for k, v in register_map.items():
+        if v == "-1" and k.startswith("$t"):
+            return k
+    return "-1"
+
+
+def get_free_f_register():
+    for k, v in register_map.items():
+        if v == "-1" and k.startswith("$f"):
+            return k
+    return "-1"
+
+
 def p_start(p):
     """start : SourceFile"""
     global _mips_code
@@ -389,11 +405,13 @@ def p_start(p):
 
     _mips_code = new_mips_code
     new_mips_code = []
+
     for i in range(len(_mips_code)):
         for j in range(len(_mips_code[i])):
             if type(_mips_code[i][j]) is str:
                 if _mips_code[i][j].startswith("__LABEL"):
                     _mips_code[i][j] = DSU_find(_mips_code[i][j])
+
 
     for i in range(len(_mips_code)):
         for j in range(len(_mips_code[i])):
@@ -406,17 +424,85 @@ def p_start(p):
                     temp.append(curr[-1])
                     curr = curr[1:-2]
                 temp.reverse()
+                tok = get_f_token
                 for siz in temp:
-                    new_mips_code.append(
-                        [get_load_instruction(int(siz)), curr, "(" + curr + ")"]
-                    )
+                    if siz == "9":
+                        new_mips_code.append(["lw", tok, "(" + curr + ")"])
+                    else:
+                        new_mips_code.append(
+                            [get_load_instruction(int(siz)), curr, "(" + curr + ")"]
+                        )
                 if _mips_code[i][j].startswith("("):
                     _mips_code[i][j] = "(" + curr + ")"
                 else:
-                    _mips_code[i][j] = curr
+                    if len(temp) > 0 and temp[-1] == "9":
+                        _mips_code[i][j] = tok
+                    else:
+                        _mips_code[i][j] = curr
 
         new_mips_code.append(_mips_code[i])
     _mips_code = new_mips_code
+    new_mips_code = []
+
+    last_used = {}
+
+    for i in range(len(_mips_code)):
+        for j in range(len(_mips_code[i])):
+            if type(_mips_code[i][j]) is str:
+                if _mips_code[i][j].startswith("#t") or _mips_code[i][j].startswith("#f"):
+                    last_used[_mips_code[i][j]] = i
+                    token_map[_mips_code[i][j]] = "-1"
+                if _mips_code[i][j].startswith("(") and _mips_code[i][j][1] != "$":
+                    last_used[_mips_code[i][j][1:-1]] = i
+                    token_map[_mips_code[i][j][1:-1]] = "-1"
+
+    # last_used = {value:key for key, value in last_used.items()}
+
+    rev_last_used = {}
+
+    for k, v in last_used.items():
+        if v not in rev_last_used.keys():
+            rev_last_used[v] = []
+
+        rev_last_used[v].append(k)
+
+    last_used = rev_last_used
+
+    write_code("before_ra.s", _mips_code)
+
+    for i in range(8):
+        register_map["$t" + str(i)] = "-1"
+        register_map["$f" + str(i)] = "-1"
+    
+    for i in range(len(_mips_code)):
+        for j in range(len(_mips_code[i])):
+            if type(_mips_code[i][j]) is str:
+                if _mips_code[i][j].startswith("#t"):
+                    if(token_map[_mips_code[i][j]] == "-1"):
+                        reg = get_free_register()
+                        token_map[_mips_code[i][j]] = reg
+                        register_map[reg] = _mips_code[i][j]
+                    _mips_code[i][j] = token_map[_mips_code[i][j]]
+
+                elif _mips_code[i][j].startswith("#f"):
+                    if(token_map[_mips_code[i][j]] == "-1"):
+                        reg = get_free_f_register()
+                        token_map[_mips_code[i][j]] = reg
+                        register_map[reg] = _mips_code[i][j]
+                    _mips_code[i][j] = token_map[_mips_code[i][j]]
+
+                elif _mips_code[i][j].startswith("(") and _mips_code[i][j][1] != "$":
+                    if(token_map[_mips_code[i][j][1:-1]] == "-1"):
+                        reg = get_free_register()
+                        token_map[_mips_code[i][j][1:-1]] = reg
+                        register_map[reg] = _mips_code[i][j][1:-1]
+                    _mips_code[i][j] = "("+token_map[_mips_code[i][j][1:-1]]+")"
+        
+        # print(last_used)
+
+        if i in last_used.keys(): 
+            for tok in last_used[i]:
+                register_map[token_map[tok]] = "-1"
 
     write_code("after.s", _mips_code)
 
@@ -739,7 +825,7 @@ def p_ReturnStmt(p):
             )
 
     else:
-        if p[2].type != "" and _current_function_return_type != p[2].type:
+        if p[2].type != "" and not equal(_current_function_return_type, p[2].type):
             print_compilation_error(
                 f"Compilation Error at line {p.lineno(1)}: Function return type is not {p[2].type}"
             )
@@ -749,6 +835,7 @@ def p_ReturnStmt(p):
         )
         p[0].ast = add_edges(p, [2])
 
+        p[0].code = p[2].code
         p[0].code += [["move", "$v0", p[2].place]]
 
     ###################
@@ -926,6 +1013,9 @@ def p_SourceFile(p):
     for k, v in _global_variables.items():
         p[0].code += [[k + ":", ".space", v]]
 
+    p[0].code += [["__printf_space:", ".asciiz", '" "']]
+    p[0].code += [["__printf_newline:", ".asciiz", '"\\n"']]
+
     p[0].code += [[""]]
     p[0].code += [[".text"], [f".globl {get_function_label(MAIN_FUNCTION)}"], [""]]
     p[0].code += p[4].code
@@ -1078,8 +1168,11 @@ def p_ConstSpec(p):
                 p[0].code.append(["move", ptr_reg, p[4].place])
                 p[0].code.append(["lw", str_len_reg, "(" + ptr_reg + ")"])
                 p[0].code.append(["addi", str_len_reg, str_len_reg, 4])
-                new_reg = get_token()
-                p[0].code.append(["heap_mem", new_reg, str_len_reg])
+                new_reg = get_token()               
+                p[0].code.append(["move", "$a0", str_len_reg])
+                p[0].code.append(["li", "$v0",9])
+                p[0].code.append(["syscall"])
+                p[0].code.append(["move", new_reg,"$v0"])
 
                 p[0].place = get_id_token()
                 temp = _current_scope
@@ -1099,7 +1192,7 @@ def p_ConstSpec(p):
                 temp_label = generate_label()
                 temp_label2 = generate_label()
 
-                p[0].code.append(temp_label)
+                p[0].code.append([temp_label])
                 p[0].code.append(["beq", str_len_reg, "$0", temp_label2])
                 p[0].code.append(["addi", str_len_reg, str_len_reg, -1])
                 p[0].code.append(["lb", temp_reg, "(" + ptr_reg + ")"])
@@ -1107,7 +1200,7 @@ def p_ConstSpec(p):
                 p[0].code.append(["addi", new_reg, new_reg, 1])
                 p[0].code.append(["addi", ptr_reg, ptr_reg, 1])
                 p[0].code.append(["j", temp_label])
-                p[0].code.append(temp_label2)
+                p[0].code.append([temp_label2])
 
             elif p[4].type == "intconst":
                 temp = _current_scope
@@ -1150,8 +1243,11 @@ def p_ConstSpec(p):
                 )
             elif p[4].type == "stringconst":
                 str_len = len(p[4].val) + 4
-                new_reg = get_token()
-                p[0].code.append(["heap_mem_immediate", new_reg, str_len])
+                new_reg = get_token()               
+                p[0].code.append(["li", "$a0", str_len])
+                p[0].code.append(["li", "$v0",9])
+                p[0].code.append(["syscall"])
+                p[0].code.append(["move", new_reg,"$v0"])
                 temp = _current_scope
                 p[0].place = get_id_token()
                 temp_size = SYMBOL_TABLE[temp][lexeme]["size"]
@@ -1167,7 +1263,7 @@ def p_ConstSpec(p):
                 p[0].code.append(["addi", new_reg, new_reg, 4])
                 temp_reg = get_token()
                 for i in range(str_len - 4):
-                    p[0].code.append(["li", temp_reg, p[4].val[i]])
+                    p[0].code.append(["li", temp_reg, "'" + p[4].val[i] + "'"])
                     p[0].code.append(["sb", temp_reg, "(" + new_reg + ")"])
                     p[0].code.append(["addi", new_reg, new_reg, 1])
 
@@ -1605,8 +1701,11 @@ def p_VarSpec(p):
                 p[0].code.append(["move", ptr_reg, p[4].place])
                 p[0].code.append(["lw", str_len_reg, "(" + ptr_reg + ")"])
                 p[0].code.append(["addi", str_len_reg, str_len_reg, 4])
-                new_reg = get_token()
-                p[0].code.append(["heap_mem", new_reg, str_len_reg])
+                new_reg = get_token()               
+                p[0].code.append(["move", "$a0", str_len_reg])
+                p[0].code.append(["li", "$v0",9])
+                p[0].code.append(["syscall"])
+                p[0].code.append(["move", new_reg,"$v0"])
 
                 p[0].place = get_id_token()
                 temp = _current_scope
@@ -1626,7 +1725,7 @@ def p_VarSpec(p):
                 temp_label = generate_label()
                 temp_label2 = generate_label()
 
-                p[0].code.append(temp_label)
+                p[0].code.append([temp_label])
                 p[0].code.append(["beq", str_len_reg, "$0", temp_label2])
                 p[0].code.append(["addi", str_len_reg, str_len_reg, -1])
                 p[0].code.append(["lb", temp_reg, "(" + ptr_reg + ")"])
@@ -1634,7 +1733,7 @@ def p_VarSpec(p):
                 p[0].code.append(["addi", new_reg, new_reg, 1])
                 p[0].code.append(["addi", ptr_reg, ptr_reg, 1])
                 p[0].code.append(["j", temp_label])
-                p[0].code.append(temp_label2)
+                p[0].code.append([temp_label2])
 
             elif p[4].type == "intconst":
                 temp = _current_scope
@@ -1677,8 +1776,11 @@ def p_VarSpec(p):
                 )
             elif p[4].type == "stringconst":
                 str_len = len(p[4].val) + 4
-                new_reg = get_token()
-                p[0].code.append(["heap_mem_immediate", new_reg, str_len])
+                new_reg = get_token()               
+                p[0].code.append(["li", "$a0", str_len])
+                p[0].code.append(["li", "$v0",9])
+                p[0].code.append(["syscall"])
+                p[0].code.append(["move", new_reg,"$v0"])
                 temp = _current_scope
                 p[0].place = get_id_token()
                 temp_size = SYMBOL_TABLE[temp][lexeme]["size"]
@@ -1694,7 +1796,7 @@ def p_VarSpec(p):
                 p[0].code.append(["addi", new_reg, new_reg, 4])
                 temp_reg = get_token()
                 for i in range(str_len - 4):
-                    p[0].code.append(["li", temp_reg, p[4].val[i]])
+                    p[0].code.append(["li", temp_reg, "'" + p[4].val[i] + "'"])
                     p[0].code.append(["sb", temp_reg, "(" + new_reg + ")"])
                     p[0].code.append(["addi", new_reg, new_reg, 1])
 
@@ -2578,8 +2680,11 @@ def p_Assignment_2(p):
                         p[0].code.append(["move", ptr_reg, p[3].place])
                         p[0].code.append(["lw", str_len_reg, "(" + ptr_reg + ")"])
                         p[0].code.append(["addi", str_len_reg, str_len_reg, 4])
-                        new_reg = get_token()
-                        p[0].code.append(["heap_mem", new_reg, str_len_reg])
+                        new_reg = get_token()               
+                        p[0].code.append(["move", "$a0", str_len_reg])
+                        p[0].code.append(["li", "$v0",9])
+                        p[0].code.append(["syscall"])
+                        p[0].code.append(["move", new_reg,"$v0"])
 
                         p[0].code.append(["sw", new_reg, "(" + p[1].place[1:-2] + ")"])
                         p[0].code.append(["addi", str_len_reg, str_len_reg, -4])
@@ -2591,7 +2696,7 @@ def p_Assignment_2(p):
                         temp_label = generate_label()
                         temp_label2 = generate_label()
 
-                        p[0].code.append(temp_label)
+                        p[0].code.append([temp_label])
                         p[0].code.append(["beq", str_len_reg, "$0", temp_label2])
                         p[0].code.append(["addi", str_len_reg, str_len_reg, -1])
                         p[0].code.append(["lb", temp_reg, "(" + ptr_reg + ")"])
@@ -2599,7 +2704,7 @@ def p_Assignment_2(p):
                         p[0].code.append(["addi", new_reg, new_reg, 1])
                         p[0].code.append(["addi", ptr_reg, ptr_reg, 1])
                         p[0].code.append(["j", temp_label])
-                        p[0].code.append(temp_label2)
+                        p[0].code.append([temp_label2])
 
                         p[0].ast = add_edges(p)
                 else:
@@ -2619,8 +2724,11 @@ def p_Assignment_2(p):
                 )
 
                 str_len = len(p[3].val) + 4
-                new_reg = get_token()
-                p[0].code.append(["heap_mem_immediate", new_reg, str_len])
+                new_reg = get_token()               
+                p[0].code.append(["li", "$a0", str_len])
+                p[0].code.append(["li", "$v0",9])
+                p[0].code.append(["syscall"])
+                p[0].code.append(["move", new_reg,"$v0"])
 
                 p[0].code.append(["sw", new_reg, "(" + p[1].place[1:-2] + ")"])
 
@@ -2630,7 +2738,7 @@ def p_Assignment_2(p):
                 p[0].code.append(["addi", new_reg, new_reg, 4])
                 temp_reg = get_token()
                 for i in range(str_len - 4):
-                    p[0].code.append(["li", temp_reg, p[3].val[i]])
+                    p[0].code.append(["li", temp_reg, "'" + p[3].val[i] + "'"])
                     p[0].code.append(["sb", temp_reg, "(" + new_reg + ")"])
                     p[0].code.append(["addi", new_reg, new_reg, 1])
 
@@ -2986,7 +3094,14 @@ def p_PrimaryExpr_6(p):
         _global_sp -= NUM_REGISTERS * 4  # TODO depends on the number of registers
 
         p[0].code += [["addi", "$sp", "$sp", padd_val]]
-        p[0].code += [["move", p[0].place, "$v0"]]
+
+        if SYMBOL_TABLE[0][p[1].val]["type"] != "void":
+            if SYMBOL_TABLE[0][p[1].val]["type"] in ["FLOAT32", "FLOAT64"]:
+                p[0].place = get_f_token()
+            else:
+                p[0].place = get_token()
+
+            p[0].code += [["move", p[0].place, "$v0"]]
 
         _global_sp -= padd_val
 
@@ -2998,6 +3113,7 @@ def p_PrimaryExpr_6(p):
             type=p[1].type,
             children=[],
         )
+        print(p[3].code)
         p[0].code = p[3].code
         p[0].ast = add_edges(p, [2, 4])
         if (
@@ -3037,7 +3153,9 @@ def p_PrimaryExpr_6(p):
                     p[0].code += [["mov.s", "$f12", arg_print.place]]
                     p[0].code += [["li", "$v0", 2]]
                 elif arg_print.type in ["stringconst", "STRING"]:
-                    pass
+                    p[0].code += [["move", "$t7", arg_print.place]]
+                    p[0].code += [["li", "$v0", 11]] 
+                    print(p[0].code)
                 elif (
                     isint(arg_print.type)
                     or arg_print.type in ["BOOL", "boolconst"]
@@ -3175,12 +3293,13 @@ def p_PrimaryExpr_6(p):
                     p[0].code += [["addi", "$sp", "$sp", -temp_global_sp - val]]
                     p[0].code += [
                         [
-                            get_store_instruction(p[3].children[i].type),
+                            get_store_instruction(arguments),
                             p[3].children[itr].place,
                             "($sp)",
                         ]
                     ]
-
+                    print(arguments)
+                    
                     # TODO push to stack
                 j += 1
                 itr += 1
@@ -3203,7 +3322,14 @@ def p_PrimaryExpr_6(p):
             _global_sp -= NUM_REGISTERS * 4  # TODO depends on the number of registers
 
             p[0].code += [["addi", "$sp", "$sp", padd_val]]
-            p[0].code += [["move", p[0].place, "$v0"]]
+
+            if SYMBOL_TABLE[0][p[1].val]["type"] != "void":
+                if SYMBOL_TABLE[0][p[1].val]["type"] in ["FLOAT32", "FLOAT64"]:
+                    p[0].place = get_f_token()
+                else:
+                    p[0].place = get_token()
+
+                p[0].code += [["move", p[0].place, "$v0"]]
 
             _global_sp -= padd_val
 
@@ -3341,6 +3467,8 @@ def p_Operand_1(p):  # DONE
         if not "func" in SYMBOL_TABLE[temp][lexeme]:
             p[0].place = get_id_token()
             temp_size = SYMBOL_TABLE[temp][lexeme]["size"]
+            if(SYMBOL_TABLE[temp][lexeme]['type'] in ["FLOAT32", "FLOAT64"]):
+                temp_size = 9
             if temp_size >= 10:
                 temp_size = 8
             p[0].place += "_" + str(temp_size)
@@ -3441,7 +3569,7 @@ def p_BasicLit_3(p):  # DONE
         children=[],
     )
     p[0].place = get_token()
-    p[0].code.append(get_pointer_for_stringconst(lexeme, p[0].place))
+    # p[0].code.append(get_pointer_for_stringconst(lexeme, p[0].place))
     p[0].ast = add_edges(p)
 
 
@@ -4145,11 +4273,10 @@ def p_Expression(p):
                 equal(p[1].type, p[3].type) != ""
             ):  # should be exactly equal or atleast one is a constant
 
-                if notcomparable(p[1].type):
+                if notcomparable(p[1].type) and  not ((p[1].type in ["STRING","stringconst"]) and p[2]=="+"):
                     print_compilation_error(
                         f"Compilation Error at line {p[1].line_num}: Incompatible data type with {lexeme} operator",
                     )
-
                 else:
                     p[0] = Node(
                         name=p[2],
@@ -4194,7 +4321,7 @@ def p_Expression(p):
                                         "addi",
                                         p[0].place,
                                         p[1].place,
-                                        p[3].place,
+                                        p[3].val,
                                     ]
                                 )
                             elif lexeme == "-":
@@ -4203,7 +4330,7 @@ def p_Expression(p):
                                         "addi",
                                         p[0].place,
                                         p[1].place,
-                                        "-" + p[3].place,
+                                        "-" + p[3].val,
                                     ]
                                 )
                             elif lexeme == "*":
@@ -4261,8 +4388,11 @@ def p_Expression(p):
                                 ["addi", str_len_reg, str_len_reg1, len(p[3].val)]
                             )
                             new_reg = get_token()
-                            p[0].code.append(["addi", str_len_reg, str_len_reg, 4])
-                            p[0].code.append(["heap_mem", new_reg, str_len_reg])
+                            p[0].code.append(["addi", str_len_reg, str_len_reg, 4])               
+                            p[0].code.append(["move", "$a0", str_len_reg])
+                            p[0].code.append(["li", "$v0",9])
+                            p[0].code.append(["syscall"])
+                            p[0].code.append(["move", new_reg,"$v0"])
                             p[0].place = get_token()
                             p[0].code.append(["move", p[0].place, new_reg])
                             p[0].code.append(["addi", str_len_reg, str_len_reg, -4])
@@ -4278,7 +4408,7 @@ def p_Expression(p):
 
                             temp_label = generate_label()
                             temp_label2 = generate_label()
-                            p[0].code.append(temp_label)
+                            p[0].code.append([temp_label])
                             p[0].code.append(["beq", str_len_reg1, "$0", temp_label2])
                             p[0].code.append(["addi", str_len_reg1, str_len_reg1, -1])
                             p[0].code.append(["lb", temp_reg, "(" + ptr_reg + ")"])
@@ -4286,13 +4416,13 @@ def p_Expression(p):
                             p[0].code.append(["addi", new_reg, new_reg, 1])
                             p[0].code.append(["addi", ptr_reg, ptr_reg, 1])
                             p[0].code.append(["j", temp_label])
-                            p[0].code.append(temp_label2)
+                            p[0].code.append([temp_label2])
 
                             # end loop
 
                             new_str = p[3].val
                             for i in range(len(new_str)):
-                                p[0].code.append(["li", temp_reg, new_str[i]])
+                                p[0].code.append(["li", temp_reg, "'" + new_str[i] + "'"])
                                 p[0].code.append(["sb", temp_reg, "(" + new_reg + ")"])
                                 p[0].code.append(["addi", new_reg, new_reg, 1])
 
@@ -4377,8 +4507,12 @@ def p_Expression(p):
                                 ["addi", str_len_reg, str_len_reg1, len(p[1].val)]
                             )
                             new_reg = get_token()
-                            p[0].code.append(["addi", str_len_reg, str_len_reg, 4])
-                            p[0].code.append(["heap_mem", new_reg, str_len_reg])
+                            p[0].code.append(["addi", str_len_reg, str_len_reg, 4])               
+                            p[0].code.append(["move", "$a0", str_len_reg])
+                            p[0].code.append(["li", "$v0",9])
+                            p[0].code.append(["syscall"])
+                            p[0].code.append(["move", new_reg,"$v0"])
+
                             p[0].place = get_token()
                             p[0].code.append(["move", p[0].place, new_reg])
                             p[0].code.append(["addi", str_len_reg, str_len_reg, -4])
@@ -4394,7 +4528,7 @@ def p_Expression(p):
 
                             temp_label = generate_label()
                             temp_label2 = generate_label()
-                            p[0].code.append(temp_label)
+                            p[0].code.append([temp_label])
                             p[0].code.append(["beq", str_len_reg1, "$0", temp_label2])
                             p[0].code.append(["addi", str_len_reg1, str_len_reg1, -1])
                             p[0].code.append(["lb", temp_reg, "(" + ptr_reg + ")"])
@@ -4402,13 +4536,13 @@ def p_Expression(p):
                             p[0].code.append(["addi", new_reg, new_reg, 1])
                             p[0].code.append(["addi", ptr_reg, ptr_reg, 1])
                             p[0].code.append(["j", temp_label])
-                            p[0].code.append(temp_label2)
+                            p[0].code.append([temp_label2])
 
                             # end loop
 
                             new_str = p[1].val
                             for i in range(len(new_str)):
-                                p[0].code.append(["li", temp_reg, new_str[i]])
+                                p[0].code.append(["li", temp_reg, "'" + new_str[i] + "'"])
                                 p[0].code.append(["sb", temp_reg, "(" + new_reg + ")"])
                                 p[0].code.append(["addi", new_reg, new_reg, 1])
 
@@ -4460,8 +4594,11 @@ def p_Expression(p):
                                 ["add", str_len_reg, str_len_reg1, str_len_reg2]
                             )
                             p[0].code.append(["addi", str_len_reg, str_len_reg, 4])
-                            new_reg = get_token()
-                            p[0].code.append(["heap_mem", new_reg, str_len_reg])
+                            new_reg = get_token()               
+                            p[0].code.append(["move", "$a0", str_len_reg])
+                            p[0].code.append(["li", "$v0",9])
+                            p[0].code.append(["syscall"])
+                            p[0].code.append(["move", new_reg,"$v0"])
                             p[0].place = get_token()
                             p[0].code.append(["move", p[0].place, new_reg])
 
@@ -4478,7 +4615,7 @@ def p_Expression(p):
                             # begin loop
                             temp_label = generate_label()
                             temp_label2 = generate_label()
-                            p[0].code.append(temp_label)
+                            p[0].code.append([temp_label])
                             p[0].code.append(["beq", str_len_reg1, "$0", temp_label2])
                             p[0].code.append(["addi", str_len_reg1, str_len_reg1, -1])
                             p[0].code.append(["lb", temp_reg, "(" + ptr_reg1 + ")"])
@@ -4487,13 +4624,13 @@ def p_Expression(p):
                             p[0].code.append(["addi", ptr_reg1, new_reg, 1])
 
                             p[0].code.append(["j", temp_label])
-                            p[0].code.append(temp_label2)
+                            p[0].code.append([temp_label2])
 
                             # TODO for loop to be inserted here  number of iterations are in str_len_reg2
                             # begin loop
                             temp_label = generate_label()
                             temp_label2 = generate_label()
-                            p[0].code.append(temp_label)
+                            p[0].code.append([temp_label])
                             p[0].code.append(["beq", str_len_reg2, "$0", temp_label2])
                             p[0].code.append(["addi", str_len_reg2, str_len_reg2, -1])
                             p[0].code.append(["lb", temp_reg, "(" + ptr_reg2 + ")"])
@@ -4501,7 +4638,7 @@ def p_Expression(p):
                             p[0].code.append(["addi", new_reg, new_reg, 1])
                             p[0].code.append(["addi", ptr_reg2, new_reg, 1])
                             p[0].code.append(["j", temp_label])
-                            p[0].code.append(temp_label2)
+                            p[0].code.append([temp_label2])
 
                             # end loop
                         else:
@@ -4707,8 +4844,18 @@ def p_UnaryExpr(p):  #  handle 3AC of STAR , BIT_AND
             )
             p[0].ast = add_edges(p)
             p[0].place = get_token()
-            new_tok = "*" + p[2].place
-            p[0].code.append(["move", p[0].place, new_tok])
+            if p[0].type in ["FLOAT32", "FLOAT64"]:
+                p[0].place = get_f_token
+            tempsize = getsize(p[0].type)
+            if(p[0].type in ["FLOAT32", "FLOAT64"]):
+                tempsize = 9
+            if tempsize >= 10:
+                tempsize = 8
+            new_tok = "*" + p[2].place + "_" + str(tempsize)
+            if p[0].type in ["FLOAT32", "FLOAT64"]:
+                p[0].code.append(["mov.s", p[0].place, new_tok])
+            else:
+                p[0].code.append(["move", p[0].place, new_tok])
 
         else:  # check on what this can be applied as well
             p[0] = Node(
@@ -5093,7 +5240,10 @@ def p_Signature(p):
                 val_child = Quant * 4
             else:
                 val_child = Quant * _size[typ]
+
             SYMBOL_TABLE[_current_scope][child.val]["array"] = dim
+
+        SYMBOL_TABLE[_current_scope][child.val]["size"] = val_child
 
         padd_val = pad(dummy_sp, child.type)
         dummy_sp += padd_val
