@@ -55,11 +55,14 @@ Our SIT triplet is (Go, Python, MIPS).
         - `src/utils.py`
         - `src/classes.py`
         - `Makefile`
-- [ ] Milestone 6: The Destination
-    - Due on: 22.04.2022
+- [x] Milestone 6: The Destination
+    - Due on: 25.04.2022
     - In this last part of the project, you will generate code for the target assembly. 
     - Deliverables
-        - `src/parser.py`
+        - `src/compiler.py`
+        - `src/constants.py`
+        - `src/classes.py`
+        - `src/tests.py`
         - `Makefile`
 
 
@@ -216,28 +219,28 @@ python src/parser.py tests/3ac/2.go
 
 ### e. Milestone 6: The Destination
 
-There are 5 test-cases present in `tests/final/` directory.
+The test-cases are present in `tests/final/` directory.
 To run the test cases, simply run
 
 ```bash
-make final test=<test_num>
+make final test=<test_name>
 ## For example,
-make final test=2
+make final test=print_literal
 ```
 
-In case no test variable is mentioned,`make` defaults to `test=1`, i.e.
+In case no test variable is mentioned,`make` defaults to `test=print_literal`, i.e.
 
 ```bash
 make final ## is equivalent to
-make final test=1
+make final test=print_literal
 ```
 
 If you do not have `make` installed, you can simply run the python script using
 
 ```bash
-python src/parser.py tests/final/<test_num>.go ## or python3, according to your system
+python src/compiler.py tests/final/<test_name>.go ## or python3, according to your system
 ## For example,
-python src/parser.py tests/final/2.go
+python src/compiler.py tests/final/print_literal.go
 ```
 
 ## iii. Group Members

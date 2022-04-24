@@ -1,19 +1,19 @@
 test=1
 
 final:
-	python src/parser.py tests/final/${test}.go
+	python src/compiler.py tests/final/${test}.go
 
 
 ir:
-	python src/parser.py tests/3ac/${test}.go
+	python src/compiler.py tests/3ac/${test}.go
 
 
 semantic:
-	python src/parser.py tests/semantic/${test}.go
+	python src/compiler.py tests/semantic/${test}.go
 
 
 parser:
-	python src/parser.py tests/parser/${test}.go
+	python src/compiler.py tests/parser/${test}.go
 
 
 scanner:
@@ -22,17 +22,6 @@ scanner:
 
 graph:
 	dot -Tpdf ${test}.dot -o ${test}.pdf
-
-
-scanner-all:
-	for f in tests/scanner/*; do \
-		python src/lexer.py $$f; \
-		if [ $$? -eq 0 ]; then \
-			echo "✅ Test case $$number successful"; \
-		else \
-			echo "❌ Test case $$number unsuccessful"; \
-		fi; \
-	done
 
 
 clean:
