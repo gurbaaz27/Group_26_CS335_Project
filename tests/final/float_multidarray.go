@@ -7,12 +7,6 @@ func main() {
 
 	var sum float64 = 0
 
-	// for i := 0; i < 4 ; i++ {
-	// 	for j := 0; j < 2 ; j++ {
-	// 		a[i][j] 
-	// 	} 
-	// }
-
 	for i := 0; i < 4 ; i++ {
 		for j := 0; j < 2 ; j++ {
 			sum += a[i][j]

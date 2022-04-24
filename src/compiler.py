@@ -790,7 +790,7 @@ def p_StatementList(p):
             else:
                 p[0].children = p[3].children
 
-            p[0].children.append(p[1])
+            p[0].children = [p[1]] + p[0].children
             p[0].code = p[1].code + p[3].code
         else:
             p[0].ast = add_edges(p, [2, 3])
@@ -3159,7 +3159,7 @@ def p_ExpressionList(p):
         # check if name will always be equal to ArgumentExpressionList
         # heavy doubt
         p[0] = p[3]
-        p[0].children.append(p[1])
+        p[0].children = [p[1]] + p[0].children
         p[0].ast = add_edges(p, [2])
         p[0].code = p[1].code + p[3].code
 
@@ -3225,11 +3225,12 @@ def p_PrimaryExpr_2(p):
     temp_label = get_token()
 
     add *= type_size
-    if add >= 10:
-        add = 8
+    temp_size = add
+    if temp_size >= 10:
+        temp_size = 8
     if type in ["FLOAT32", "FLOAT64"]:
-        add = 9
-    p[0].place = "*" + get_token() + "_" + str(add)
+        temp_size = 9
+    p[0].place = "*" + get_token() + "_" + str(temp_size)
     temp_reg = get_token()
     p[0].code.append(["li", temp_reg, add])
     p[0].code.append(["mul", temp_label, p[2].place, temp_reg])
@@ -3875,6 +3876,8 @@ def p_BasicLit_1(p):  # DONE
     else:
         lexeme = p[1]
 
+    lexeme = str(get_int_const(lexeme))
+
     p[0] = Node(
         name="ConstantExpression",
         val=lexeme,
@@ -3894,6 +3897,8 @@ def p_BasicLit_2(p):  # DONE
         lexeme = p[1][0]
     else:
         lexeme = p[1]
+
+    lexeme = str(get_float_const(lexeme))
 
     p[0] = Node(
         name="ConstantExpression",
@@ -5825,7 +5830,7 @@ def p_ParameterList(p):
         else:
             p[0].children = p[3].children
 
-        p[0].children.append(p[1])
+        p[0].children = [p[1]] + p[0].children
         p[0].ast = add_edges(p)
     else:
         p[0] = p[1]
