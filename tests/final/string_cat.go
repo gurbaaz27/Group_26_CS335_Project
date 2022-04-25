@@ -1,33 +1,16 @@
 package main
 
-// var b int = 9
-
-// func hello() {
-// 	printf(4.0)
-// 	return
-// }
+const a string = "First string"
+var b string = "Second string"
 
 func main() {
-	// var a int = 1
-	// var b int = 2
-	// printf(a + b)
-	const s string = "hello"
-	const a string = " WORLD"
-	printf(s + a)
-	// var b int = 1
-	// printf(b << 4)
-	// hello()
+	const c string = "Third string"
+	var d string = "Fourth string"
 
-	// if i > 10 {py
-	// 	i = i + 1
-	// } else {
-	// 	i = i + 2
-	// }
-	// b = 10
-	// var b int8 = 5
-	// b = 11
-	// var b bool = true
-	// var c float64 = 0.9
-	// a = a + 5
+	printf(a + b)
+	printf(b + d)
+	printf(c + a)
+	printf(d + b + c)
+
 	return
 }

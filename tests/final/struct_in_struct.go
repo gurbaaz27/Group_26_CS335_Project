@@ -1,9 +1,14 @@
 package main
 
+type ErrorMessage struct {
+	Id int64
+	Message string
+}
+
 type JobResponse struct {
 	JobId   int64
 	Status  bool
-	Stipend float64
+	Error ErrorMessage
 	Remarks string
 }
 
@@ -11,12 +16,14 @@ func main() {
 	var a JobResponse
 	a.JobId = 22
 	a.Status = true
-	a.Stipend = 225000.0
-	a.Remarks = "Job is great!"
+	a.Error.Id = 1
+	a.Error.Message = "Error encountered captain!"
+	a.Remarks = "Nice work"
 	printf(a.JobId)
 	printf(a.Status)
-	printf(a.Stipend)
 	printf(a.Remarks)
+	printf(a.Error.Id)
+	printf(a.Error.Message)
 
 	return
 }

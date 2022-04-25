@@ -1,8 +1,6 @@
 package main
 
-
-
-var arr [7]int = [7]int{33, 3, 31, 13, 55, 0, 300}
+var arr [7]int = [7]int{33444, 3, 311, 13, 55, 0, 300}
 
 func merge(start int, mid int, end int) {
 	if start == end {
@@ -10,7 +8,7 @@ func merge(start int, mid int, end int) {
 	}
 	var a = start
 	var b = mid + 1
-
+    
 	var temp [7]int
 	for base := start; base < end+1; base++ {
 		if a == mid+1 {
@@ -39,40 +37,31 @@ func merge(start int, mid int, end int) {
 	for base := start; base < end+1; base++ {
 		arr[base] = temp[base]
 	}
+	
+   return 
 
 }
-var d string = "--------"
+
 func mergesort(start int, end int) {
-
-	for base := start; base < end+1; base++ {
-		printf(arr[base])
+	if start == end {
+		return
 	}
-
-
-
-	// if start == end {
-	// 	return
-	// }
-	// a := (start + end) / 2
-	// //mergesort(start, a)
-	// //mergesort(a+1, end)
-	// ///merge(start, a, end)
-	// printf(d)
-	// printf(start)
-	// printf(end)
-
-	// printf(d)
-	return
+	a := (start + end) / 2
+	 mergesort(start, a)
+	 mergesort(a+1, end)
+// 	for i := 0; i < 7; i++ {
+// 		printf(arr[i])
+//    }
+	merge(start, a, end)
+// 	for i := 0; i < 7; i++ {
+// 		printf(arr[i])
+//    }
 
 }
 
 func main() {
-	var a int = 0
-	var b int = 6
-
-	
-	 mergesort(0, 6)
-	// for i := 0; i < 7; i++ {
-	//      printf(arr[i])
-	// }
+	mergesort(0, 6)
+	for i := 0; i < 7; i++ {
+	     printf(arr[i])
+	}
 }
