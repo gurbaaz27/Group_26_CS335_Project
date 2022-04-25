@@ -4,6 +4,7 @@ Our SIT triplet is (Go, Python, MIPS).
 
 ## Table of Contents
 
+0. [Salient Features](#salient-features)
 1. [Timeline](#i-timeline)
 2. [Usage Guidelines](#ii-usage-guidelines)
     - [Scanner](#a-milestone-2-scanner)
@@ -13,6 +14,27 @@ Our SIT triplet is (Go, Python, MIPS).
     - [The Destination](#e-milestone-6-the-destination)
 3. [Group Members](#iii-group-members)
 4. [Acknowledgement](#iv-acknowledgement)
+
+## Salient Features
+
+- Native Data types (`integer`, `float`, `bool`, `string`). 
+- Variables and Expressions
+- Control structures
+  - Conditionals (`if`, `if-else`, `switch`)
+  - Loops (`for`).  
+- Input/Output statements (`scanf`, `printf`)
+- Arrays (`multidimensional array` supported)
+- Functions (Recursion is supported)
+- User defined types (`struct`)
+  - Nested `struct`s are also supported
+- Pointers/References
+- Short declarations using `:=`  
+- **Automatic type inference**
+- **Short-circuit evaluation**
+- **String concatenation with "+" (memory allocated to string from heap)**
+- **Evaluation of compile-time constant expressions**
+- **Multi level Pointers** 
+- **Multi level Break**
 
 ## i. Timeline
 
