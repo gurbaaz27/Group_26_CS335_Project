@@ -386,7 +386,7 @@ def p_start(p):
     p[0] = p[1]
     _mips_code = p[0].code
     new_mips_code = []
-
+    # print(DSU_find("__LABEL_2"), DSU_find("__LABEL_6"))
     write_code("before.s", _mips_code)
 
     for i in range(len(_mips_code)):
@@ -1188,6 +1188,7 @@ def p_ConstSpec(p):
                 if temp_size >= 10:
                     temp_size = 8
                 p[0].place += "_" + str(temp_size)
+                
                 p[0].code.append(find_addr_of_variable(lexeme, p[0].place))
                 p[0].code.append(["sw", new_reg, "(" + p[0].place[1:-2] + ")"])
                 p[0].code.append(["addi", str_len_reg, str_len_reg, -4])
@@ -1199,10 +1200,10 @@ def p_ConstSpec(p):
 
                 temp_label = generate_label()
                 temp_label2 = generate_label()
-
+                p[0].code.append(["move","$s3",str_len_reg])
                 p[0].code.append([temp_label])
-                p[0].code.append(["beq", str_len_reg, "$0", temp_label2])
-                p[0].code.append(["addi", str_len_reg, str_len_reg, -1])
+                p[0].code.append(["beq", "$s3", "$0", temp_label2])
+                p[0].code.append(["addi", "$s3", "$s3", -1])
                 p[0].code.append(["lb", temp_reg, "(" + ptr_reg + ")"])
                 p[0].code.append(["sb", temp_reg, "(" + new_reg + ")"])
                 p[0].code.append(["addi", new_reg, new_reg, 1])
@@ -1472,10 +1473,10 @@ def p_ConstSpec(p):
 
                 temp_label = generate_label()
                 temp_label2 = generate_label()
-
+                p[0].code.append(["move","$s3",str_len_reg])
                 p[0].code.append([temp_label])
-                p[0].code.append(["beq", str_len_reg, "$0", temp_label2])
-                p[0].code.append(["addi", str_len_reg, str_len_reg, -1])
+                p[0].code.append(["beq", "$s3", "$0", temp_label2])
+                p[0].code.append(["addi", "$s3", "$s3", -1])
                 p[0].code.append(["lb", temp_reg, "(" + ptr_reg + ")"])
                 p[0].code.append(["sb", temp_reg, "(" + new_reg + ")"])
                 p[0].code.append(["addi", new_reg, new_reg, 1])
@@ -1696,18 +1697,18 @@ def p_TypeDef(p):
             typ = typ + " struct"
             i = i + 1
             isStruct = "struct "
+        typ = typ + " " + temp[i]
+        typ = typ.strip()
+        CurrSize += pad(CurrSize, typ)
+        # print("Hello", CurrSize, typ)
+        _offset[sym][CurrName] = CurrSize
+        curr.append(typ)
+        fields.append(curr)
         if temp[i].endswith("*"):
             CurrSize += Quant * 4
         else:
             CurrSize += Quant * _size[isStruct + temp[i]]
-        typ = typ + " " + temp[i]
-        typ = typ.strip()
-        CurrSize += pad(CurrSize, typ)
-        print("Hello", CurrSize, typ)
-        _offset[sym][CurrName] = CurrSize
         i = i + 1
-        curr.append(typ)
-        fields.append(curr)
     _size[sym] = CurrSize
     SYMBOL_TABLE[_current_scope][sym] = {}
     SYMBOL_TABLE[_current_scope][sym]["field_list"] = fields
@@ -1756,7 +1757,7 @@ def p_VarSpec(p):
 
             if p[4].type not in ["intconst", "floatconst", "stringconst", "boolconst"]:
                 print_compilation_error(
-                    f"Compilation Error at line {p.lineno(1)}: RHS expression is not of type constant"
+                    f"Compilation Error at line {p.lineno(1)}: Type mismatch ({p[2].type} and {p[4].type})"
                 )
 
             elif (
@@ -1886,10 +1887,10 @@ def p_VarSpec(p):
 
                 temp_label = generate_label()
                 temp_label2 = generate_label()
-
+                p[0].code.append(["move","$s3",str_len_reg])
                 p[0].code.append([temp_label])
-                p[0].code.append(["beq", str_len_reg, "$0", temp_label2])
-                p[0].code.append(["addi", str_len_reg, str_len_reg, -1])
+                p[0].code.append(["beq", "$s3", "$0", temp_label2])
+                p[0].code.append(["addi", "$s3", "$s3", -1])
                 p[0].code.append(["lb", temp_reg, "(" + ptr_reg + ")"])
                 p[0].code.append(["sb", temp_reg, "(" + new_reg + ")"])
                 p[0].code.append(["addi", new_reg, new_reg, 1])
@@ -2124,10 +2125,10 @@ def p_VarSpec(p):
 
                 temp_label = generate_label()
                 temp_label2 = generate_label()
-
+                p[0].code.append(["move","$s3","str_len_reg"])
                 p[0].code.append([temp_label])
-                p[0].code.append(["beq", str_len_reg, "$0", temp_label2])
-                p[0].code.append(["addi", str_len_reg, str_len_reg, -1])
+                p[0].code.append(["beq", "$s3", "$0", temp_label2])
+                p[0].code.append(["addi", "$s3", "$s3", -1])
                 p[0].code.append(["lb", temp_reg, "(" + ptr_reg + ")"])
                 p[0].code.append(["sb", temp_reg, "(" + new_reg + ")"])
                 p[0].code.append(["addi", new_reg, new_reg, 1])
@@ -3009,10 +3010,10 @@ def p_Assignment_2(p):
 
                         temp_label = generate_label()
                         temp_label2 = generate_label()
-
+                        p[0].code.append(["move","$s3",str_len_reg])
                         p[0].code.append([temp_label])
-                        p[0].code.append(["beq", str_len_reg, "$0", temp_label2])
-                        p[0].code.append(["addi", str_len_reg, str_len_reg, -1])
+                        p[0].code.append(["beq", "$s3", "$0", temp_label2])
+                        p[0].code.append(["addi", "$s3", "$s3", -1])
                         p[0].code.append(["lb", temp_reg, "(" + ptr_reg + ")"])
                         p[0].code.append(["sb", temp_reg, "(" + new_reg + ")"])
                         p[0].code.append(["addi", new_reg, new_reg, 1])
@@ -3665,6 +3666,7 @@ def p_PrimaryExpr_6(p):
 
             p[0].code += [["jal", SYMBOL_TABLE[0][p[1].val]["jumpLabel"]]]
             p[0].code += [["addi", "$sp", "$sp", total_val]]
+            _global_sp -= total_val
             ## Just doing it for 2 regs now
             ##remember the reverse
 
@@ -3729,7 +3731,7 @@ def p_PrimaryExpr_7(p):
         if curr_list[0] == lexeme:
             off = _offset[struct_name][lexeme]
 
-            print(off, lexeme)
+            # print(off, lexeme)
 
             temp_size = getsize(curr_list[1])
             if temp_size >= 10:
@@ -3762,7 +3764,6 @@ def p_PrimaryExpr_7(p):
 
     else:
         p[0].code.append(["addi", p[0].place[1:-2], p[1].place[1:-2], off])
-        print(p[0].code[-1])
 
 
 def p_PrimaryExpr_9(p):
@@ -3809,7 +3810,7 @@ def p_Conversion(p):
     """Conversion : Conv_type LEFT_PARENTH Expression RIGHT_PARENTH"""
     p[0] = p[3]
     p[0].type = p[1].type
-    p[0].place = get_token()
+    # p[0].place = get_token()
     p[0].ast = add_edges(p)
 
     if not convertible(p[3].type, p[1].type):
@@ -3866,6 +3867,8 @@ def p_Operand_1(p):  # DONE
 def p_Operand_2(p):  # DONE
     """Operand : LEFT_PARENTH Expression RIGHT_PARENTH"""
     p[0] = p[2]
+    p[0].truelabel = p[2].truelabel
+    p[0].falselabel = p[2].falselabel
     p[0].ast = add_edges(p, [1, 3])
 
 
@@ -4152,9 +4155,11 @@ def p_Expression(p):
                 p[0].ast = add_edges(p)
                 p[0].truelabel = generate_label()
                 p[0].falselabel = generate_label()
+                # print(p[0].truelabel, p[0].falselabel)
                 DSU_merge(p[1].truelabel, p[3].truelabel)
                 DSU_merge(p[0].truelabel, p[1].truelabel)
                 DSU_merge(p[0].falselabel, p[3].falselabel)
+                # print(p[0].truelabel, p[0].falselabel)
                 p[0].code = p[1].code
                 p[0].place = get_token()
                 p[0].code.append(["move", p[0].place, p[1].place])
@@ -4781,9 +4786,10 @@ def p_Expression(p):
 
                             temp_label = generate_label()
                             temp_label2 = generate_label()
+                            p[0].code.append(["move","$s3",str_len_reg1])
                             p[0].code.append([temp_label])
-                            p[0].code.append(["beq", str_len_reg1, "$0", temp_label2])
-                            p[0].code.append(["addi", str_len_reg1, str_len_reg1, -1])
+                            p[0].code.append(["beq", "$s3", "$0", temp_label2])
+                            p[0].code.append(["addi", "$s3", "$s3", -1])
                             p[0].code.append(["lb", temp_reg, "(" + ptr_reg + ")"])
                             p[0].code.append(["sb", temp_reg, "(" + new_reg + ")"])
                             p[0].code.append(["addi", new_reg, new_reg, 1])
@@ -4901,9 +4907,10 @@ def p_Expression(p):
 
                             temp_label = generate_label()
                             temp_label2 = generate_label()
+                            p[0].code.append(["move","$s3",str_len_reg1])
                             p[0].code.append([temp_label])
-                            p[0].code.append(["beq", str_len_reg1, "$0", temp_label2])
-                            p[0].code.append(["addi", str_len_reg1, str_len_reg1, -1])
+                            p[0].code.append(["beq", "$s3", "$0", temp_label2])
+                            p[0].code.append(["addi", "$s3", "$s3", -1])
                             p[0].code.append(["lb", temp_reg, "(" + ptr_reg + ")"])
                             p[0].code.append(["sb", temp_reg, "(" + new_reg + ")"])
                             p[0].code.append(["addi", new_reg, new_reg, 1])
@@ -4952,10 +4959,11 @@ def p_Expression(p):
                                 )
                             p[0].ast = add_edges(p)
                         elif p[1].type == "STRING":
+                            p[0].code = p[1].code + p[3].code
                             str_len_reg1 = get_token()
                             str_len_reg2 = get_token()
                             str_len_reg = get_token()
-
+                            # print("you are here")
                             ptr_reg1 = get_token()
                             ptr_reg2 = get_token()
                             p[0].code.append(["move", ptr_reg1, p[1].place])
@@ -4988,13 +4996,14 @@ def p_Expression(p):
                             # begin loop
                             temp_label = generate_label()
                             temp_label2 = generate_label()
+                            p[0].code.append(["move","$s3",str_len_reg1])
                             p[0].code.append([temp_label])
-                            p[0].code.append(["beq", str_len_reg1, "$0", temp_label2])
-                            p[0].code.append(["addi", str_len_reg1, str_len_reg1, -1])
+                            p[0].code.append(["beq", "$s3", "$0", temp_label2])
+                            p[0].code.append(["addi", "$s3", "$s3", -1])
                             p[0].code.append(["lb", temp_reg, "(" + ptr_reg1 + ")"])
                             p[0].code.append(["sb", temp_reg, "(" + new_reg + ")"])
                             p[0].code.append(["addi", new_reg, new_reg, 1])
-                            p[0].code.append(["addi", ptr_reg1, new_reg, 1])
+                            p[0].code.append(["addi", ptr_reg1, ptr_reg1, 1])
 
                             p[0].code.append(["j", temp_label])
                             p[0].code.append([temp_label2])
@@ -5003,13 +5012,14 @@ def p_Expression(p):
                             # begin loop
                             temp_label = generate_label()
                             temp_label2 = generate_label()
+                            p[0].code.append(["move","$s3",str_len_reg2])
                             p[0].code.append([temp_label])
-                            p[0].code.append(["beq", str_len_reg2, "$0", temp_label2])
-                            p[0].code.append(["addi", str_len_reg2, str_len_reg2, -1])
+                            p[0].code.append(["beq", "$s3", "$0", temp_label2])
+                            p[0].code.append(["addi","$s3", "$s3", -1])
                             p[0].code.append(["lb", temp_reg, "(" + ptr_reg2 + ")"])
                             p[0].code.append(["sb", temp_reg, "(" + new_reg + ")"])
                             p[0].code.append(["addi", new_reg, new_reg, 1])
-                            p[0].code.append(["addi", ptr_reg2, new_reg, 1])
+                            p[0].code.append(["addi", ptr_reg2, ptr_reg2, 1])
                             p[0].code.append(["j", temp_label])
                             p[0].code.append([temp_label2])
 
@@ -5199,9 +5209,9 @@ def p_UnaryExpr(p):  #  handle 3AC of STAR , BIT_AND
                 print_compilation_error(
                     f"Compilation Error at line {p[1].line_num}: Cannot dereference variable of type {p[2].type}"
                 )
-            p[0].place = get_token()
-            new_tok = p[2].place[1:-2]
-            p[0].code.append(["move", p[0].place, new_tok])
+            p[0].place = p[2].place[1:-2]
+            # new_tok = p[2].place[1:-2]
+            # p[0].code.append(["move", p[0].place, new_tok])
 
         elif p[1].val == "*":
             if not p[2].type.endswith("*"):
@@ -5227,10 +5237,11 @@ def p_UnaryExpr(p):  #  handle 3AC of STAR , BIT_AND
             if tempsize >= 10:
                 tempsize = 8
             new_tok = "*" + p[2].place + "_" + str(tempsize)
-            if p[0].type in ["FLOAT32", "FLOAT64"]:
-                p[0].code.append(["mov.s", p[0].place, new_tok])
-            else:
-                p[0].code.append(["move", p[0].place, new_tok])
+            p[0].place = new_tok
+            # if p[0].type in ["FLOAT32", "FLOAT64"]:
+            #     p[0].code.append(["mov.s", p[0].place, new_tok])
+            # else:
+            #     p[0].code.append(["move", p[0].place, new_tok])
 
         else:  # check on what this can be applied as well
             p[0] = Node(
@@ -5448,10 +5459,10 @@ def p_ShortVarDecl(p):
 
                 temp_label = generate_label()
                 temp_label2 = generate_label()
-
+                p[0].code.append(["move","$s3",str_len_reg])
                 p[0].code.append([temp_label])
-                p[0].code.append(["beq", str_len_reg, "$0", temp_label2])
-                p[0].code.append(["addi", str_len_reg, str_len_reg, -1])
+                p[0].code.append(["beq", "$s3", "$0", temp_label2])
+                p[0].code.append(["addi","$s3", "$s3", -1])
                 p[0].code.append(["lb", temp_reg, "(" + ptr_reg + ")"])
                 p[0].code.append(["sb", temp_reg, "(" + new_reg + ")"])
                 p[0].code.append(["addi", new_reg, new_reg, 1])
@@ -5891,6 +5902,8 @@ def p_IfStmt_1(p):
         p[0].code.append(["beq", p[2].place, "$0", newlabel])
 
         p[0].code.append([p[2].truelabel])
+        # print(p[2].truelabel, "you are right")
+        # print(newlabel)
         p[0].code += p[3].code
         p[0].code.append(["j", exit_label])
         p[0].code.append([newlabel])
@@ -6225,9 +6238,9 @@ def p_ForStmt_1(p):
 
     ## TODO what would be it be "False" || "FALSE" || "false"
     else:
-        p[0].code += p[1].code
-        p[0].code.append(["beq", p[2].place, "$0", _break_label[_loop_depth]])
         p[0].code += p[2].code
+        p[0].code.append(["beq", p[2].place, "$0", _break_label[_loop_depth]])
+        p[0].code += p[3].code
         p[0].code.append(["j", _continue_label[_loop_depth]])
         p[0].code.append([_break_label[_loop_depth]])
 
