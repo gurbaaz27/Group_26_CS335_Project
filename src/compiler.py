@@ -3867,8 +3867,6 @@ def p_Operand_1(p):  # DONE
 def p_Operand_2(p):  # DONE
     """Operand : LEFT_PARENTH Expression RIGHT_PARENTH"""
     p[0] = p[2]
-    p[0].truelabel = p[2].truelabel
-    p[0].falselabel = p[2].falselabel
     p[0].ast = add_edges(p, [1, 3])
 
 
@@ -4124,8 +4122,11 @@ def p_Expression(p):
         p[0].ast = add_edges(p)
 
         if(p[0].type in ["boolconst","BOOL"]):
-            p[0].truelabel = generate_label()
-            p[0].falselabel = generate_label()
+            if(p[1].truelabel==""):
+             p[0].truelabel = generate_label()
+            if(p[1].falselabel==""):
+             p[0].falselabel = generate_label()
+
 
     else:
         lexeme = ""
@@ -4164,6 +4165,7 @@ def p_Expression(p):
                 p[0].place = get_token()
                 p[0].code.append(["move", p[0].place, p[1].place])
                 p[0].code.append(["bnez", p[1].place, p[1].truelabel])
+                p[0].code.append([p[1].falselabel])
                 p[0].code += p[3].code
                 p[0].code.append(["move", p[0].place, p[3].place])
                 p[0].code.append(["bnez", p[3].place, p[3].truelabel])
@@ -4196,6 +4198,7 @@ def p_Expression(p):
                 p[0].place = get_token()
                 p[0].code.append(["move", p[0].place, p[1].place])
                 p[0].code.append(["beq", "$0", p[1].place, p[1].falselabel])
+                p[0].code.append([p[1].truelabel])
                 p[0].code += p[3].code
                 p[0].code.append(["move", p[0].place, p[3].place])
                 p[0].code.append(["beq", "$0", p[3].place, p[3].falselabel])
@@ -4807,6 +4810,7 @@ def p_Expression(p):
 
                         elif p[1].type == "intconst":
                             p[0].code = p[3].code
+                            print("hi")
                             p[0].place = get_token()
                             if lexeme == "+":
                                 p[0].code.append(
@@ -4827,7 +4831,7 @@ def p_Expression(p):
                                     ]
                                 )
                             elif lexeme == "*":
-                                p[0].code.append(p[1].code)
+                                p[0].code += p[1].code
                                 cal_token = p[1].place
                                 p[0].code.append(
                                     [
@@ -5300,8 +5304,18 @@ def p_UnaryExpr(p):  #  handle 3AC of STAR , BIT_AND
                     )
 
             if p[1].val == "!":
-                p[0].truelabel = generate_label()
-                p[0].falselabel = generate_label()
+                # if(p[2].truelabel == ""):
+                #     p[0].truelabel = generate_label()
+                # else:
+                #     p[0].truelabel = p[2].truelabel
+                
+                # if(p[2].falselabel == ""):
+                #     p[0].falselabel = generate_label()
+                # else:
+                #     p[0].falselabel = p[2].falselabel
+
+                p[0].falselabel = p[2].truelabel
+                p[0].truelabel = p[2].falselabel
                 if p[2].type in ["boolconst"]:
                     p[0].place = get_token()
                     p[0].val = str(1 - int(p[0].val))
@@ -5314,8 +5328,6 @@ def p_UnaryExpr(p):  #  handle 3AC of STAR , BIT_AND
                     print_compilation_error(
                         f"Compilation Error at line {p[1].line_num}: Cannot apply operation of type {p[1].val} to {p[2].type}"
                     )
-
-
 def p_unary_op(p):
     """unary_op : PLUS
     | MINUS
